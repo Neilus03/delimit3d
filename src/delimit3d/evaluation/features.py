@@ -2,7 +2,7 @@
 
 This module is intentionally small and model-facing only.  It keeps the
 representation evaluation independent from plotting and from the historical
-CHORUS script layout.  Checkpoints are loaded into the pinned LitePT wrapper,
+script layout.  Checkpoints are loaded into the pinned LitePT wrapper,
 with a strict 72-D native feature contract and no optimizer/projector state.
 """
 

@@ -168,7 +168,7 @@ def _load_seen_points_with_legacy_fallback(
 
 @dataclass(frozen=True)
 class TrainingPackScene:
-    """All arrays and metadata from one exported CHORUS training-pack,
+    """All arrays and metadata from one exported training pack,
     resolved to a single granularity."""
 
     scene_id: str

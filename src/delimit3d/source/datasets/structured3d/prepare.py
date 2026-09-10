@@ -51,7 +51,8 @@ def _count_frame_files(scene_dir: Path) -> tuple[int, int, int]:
 
 def prepare_structured3d_scene(scene_id: str, raw_zips_dir: str, output_scans_root: str) -> None:
     """
-    Prepare a Structured3D scene directory in ScanNet-like CHORUS format.
+    Prepare a Structured3D scene directory in the ScanNet-like scene format
+    consumed by the Delimit3D source adapter.
 
     Outputs (under <output_scans_root>/<scene_id>/):
     - color/{i}.jpg
@@ -164,11 +165,11 @@ def prepare_structured3d_scene(scene_id: str, raw_zips_dir: str, output_scans_ro
             K[0, 0] = K[0, 2] / np.tan(fx)
             K[1, 1] = K[1, 2] / np.tan(fy)
 
-            # Pose: camera-to-world (C2W) in CHORUS pinhole-camera coordinates.
+            # Pose: camera-to-world (C2W) in the legacy pinhole-camera coordinates.
             # The fused geometry below first converts pinhole camera coordinates with
             # CAMERA_AXIS_CONVERSION, then applies Structured3D cam_r/cam_t:
             #   Xw(row) = (Xcam(row) @ CAMERA_AXIS_CONVERSION) @ cam_r.T + cam_t
-            # For CHORUS projection to invert back to the original pinhole Xcam, the
+            # To invert back to the original pinhole Xcam, the
             # saved column-vector C2W rotation must include the same axis conversion.
             c2w = np.eye(4, dtype=np.float32)
             c2w[:3, :3] = cam_r @ CAMERA_AXIS_CONVERSION.T
@@ -229,7 +230,7 @@ def prepare_structured3d_scene(scene_id: str, raw_zips_dir: str, output_scans_ro
         all_instances = np.concatenate(filled_instances, axis=0).astype(np.int32)
 
     # NOTE: Do not apply an additional global axis flip here unless you also apply the
-    # corresponding transform to every saved pose. CHORUS projects 2D masks using the poses
+    # corresponding transform to every saved pose. Delimit3D projects 2D masks using the poses
     # into the geometry coordinate frame; geometry and poses must stay consistent.
 
     # 3) Voxel downsample (take first point per voxel, deterministic via np.unique index policy)

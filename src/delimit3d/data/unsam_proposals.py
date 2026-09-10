@@ -1,6 +1,6 @@
 """Deterministic serialization for overlapping UnSAM proposals.
 
-The legacy CHORUS teacher writes one integer label per pixel, which destroys
+The legacy teacher writes one integer label per pixel, which destroys
 proposal overlap.  The contrastive-pretraining data path needs both views:
 
 * the complete ordered proposal set for the raw-overlap fidelity experiment;

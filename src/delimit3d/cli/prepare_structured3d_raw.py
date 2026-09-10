@@ -4,7 +4,7 @@
 This is deliberately a 2D-only exporter.  It runs the same in-memory
 ``UnSAMv2Teacher._mask_generator.generate(image, gra=...)`` path used by the
 PartField contrastive source preparation, at g02/g05/g08.  It does not run the
-CHORUS projection, SVD, HDBSCAN, or any 3D hierarchy checks, so it can cover
+projection, SVD, HDBSCAN, or any 3D hierarchy checks, so it can cover
 Structured3D scenes whose optional 3D training packs are absent.
 
 For every complete valid-pose frame and each granularity, the exporter keeps

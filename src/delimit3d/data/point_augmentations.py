@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover
 _HAS_SCIPY = _interp is not None and _ndimage is not None
 
 
-# Structured3D's official files use a right-handed +Z-up frame.  CHORUS's
+# Structured3D's official files use a right-handed +Z-up frame.  The legacy
 # exporter stores them after the explicit cyclic permutation below, so the
 # compact source packs are right-handed +Y-up.  V2 canonicalizes those arrays
 # to the ScanNet +Z-up model frame with a second *explicit* proper rotation.
