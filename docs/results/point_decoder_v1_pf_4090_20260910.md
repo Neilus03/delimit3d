@@ -22,6 +22,19 @@ the reports verify `encoder_state_unchanged: true` for both arms.
 | oracle IoU (best threshold) | 0.33081 | 0.39835 | **+0.06755** |
 | fixed F1 | 0.23170 | 0.24251 | +0.01081 |
 
+For reference, the untrained native cosine readout on the same queries was:
+
+| cosine readout | public LitePT | Delimit3D | Delimit3D − public |
+| --- | ---: | ---: | ---: |
+| AP | 0.47466 | 0.53649 | **+0.06183** |
+| fixed IoU (threshold 0.70) | 0.11920 | 0.16476 | **+0.04556** |
+| oracle IoU | 0.36442 | 0.41774 | **+0.05332** |
+
+This secondary readout is not the primary learned-decoder endpoint, but it
+shows that the ranking improvement is already present before fitting the
+decoder.  The learned decoder improves absolute fixed IoU for both arms and
+compresses the public-versus-Delimit3D IoU gap at the chosen threshold.
+
 The improvement is broad for ranking quality: Delimit3D is better on 45/50
 paired scenes for AP, with a scene-bootstrap 95% interval of approximately
 [0.0675, 0.1051] AP points.  Oracle IoU is better on 44/50 scenes.  Fixed IoU
