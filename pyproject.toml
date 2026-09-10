@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "delimit3d"
+version = "0.1.0"
+description = "Short, label-free adaptation of pretrained 3D scene features from multigranular 2D pseudomasks"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "torch>=2.0",
+  "PyYAML>=6.0",
+  "Pillow>=9.0",
+  "opencv-python>=4.8",
+  "imageio>=2.20",
+  "plyfile>=0.8",
+]
+
+[project.optional-dependencies]
+plots = ["matplotlib>=3.7"]
+
+dev = ["pytest>=7.0", "ruff>=0.5"]
+sources = ["open3d>=0.17"]
+
+[project.scripts]
+delimit3d-adapt = "delimit3d.training.runner:main"
+delimit3d-init-scratch = "delimit3d.cli.initialize_scratch:main"
+delimit3d-init-public = "delimit3d.cli.initialize_public:main"
+delimit3d-select-checkpoint = "delimit3d.cli.select_checkpoint:main"
+delimit3d-prepare-structured3d-raw = "delimit3d.cli.prepare_structured3d_raw:main"
+delimit3d-prepare-structured3d-sources = "delimit3d.cli.prepare_structured3d_sources:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["src/delimit3d/training/runner.py", "src/delimit3d/training/adaptation.py"]

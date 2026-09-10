@@ -1,0 +1,63 @@
+{
+  "schema_version": "delimit3d_legacy_evidence_index/v1",
+  "recorded_at": "2026-09-10",
+  "project_name": "Delimit3D",
+  "legacy_repository": {
+    "host": "nedela@euler.ethz.ch",
+    "path": "/cluster/home/nedela/nedela/projects/chorus",
+    "branch": "cleanup/provenance-preserving-2026-09-08",
+    "head": "0948a906cf71dd9a857dd33eef3dd902e0bad6fd",
+    "submodule": "chorus/UnSAMv2",
+    "submodule_commit": "4f2ce5148bc9c769169b7c45ad28c7af28399ff"
+  },
+  "scientific_scope": {
+    "retained": "short 2D UnSAMv2 multigranular adaptation of public LitePT for point-conditioned object/part selection",
+    "historical_negative": "scratch RGBN6 pretraining did not provide a reliable Mask3D class-aware initialization",
+    "primary_readout": "native 72-D frozen point-prompted feature retrieval",
+    "not_claimed": [
+      "official ScanNet or ScanNet++ instance AP",
+      "learned interactive decoder improvement",
+      "part segmentation improvement",
+      "general transfer to arbitrary backbones"
+    ]
+  },
+  "retained_checkpoint_hashes": {
+    "public_litept_checkpoint": {
+      "sha256": "86408c6371555aeee2a8eda1184b55a411f9748784c275349149b509b661d518",
+      "legacy_path": "/cluster/work/igp_psr/nedela/LitePT/pretrained/scannet-insseg-litept-small-v1m2-model_best.pth"
+    },
+    "public_initialized_adaptation": {
+      "sha256": "4717369861cff81fe784efda8cd8a7653de46d35635730f10c893da563050282",
+      "legacy_root": "/cluster/work/igp_psr/nedela/chorus_point_prompted_fullval_20260909_r2"
+    }
+  },
+  "scannetpp_frozen_readout": {
+    "legacy_root": "/cluster/work/igp_psr/nedela/chorus_scannetpp_prompt_20260910_r1",
+    "scene_count": 50,
+    "object_count": 777,
+    "query_count": 3108,
+    "fixed_cosine_threshold": 0.7,
+    "public": {
+      "miou": 0.1187,
+      "precision": 0.1436,
+      "f1": 0.1875,
+      "ranked_ap": 0.4854,
+      "recall": 0.8549
+    },
+    "adapted_minus_public_percentage_points": {
+      "miou": 4.73,
+      "precision": 6.21,
+      "f1": 6.10,
+      "ranked_ap": 6.41,
+      "recall": 0.60
+    },
+    "report_path": "/cluster/work/igp_psr/nedela/chorus_scannetpp_prompt_20260910_r1/standard_metrics/REPORT.md"
+  },
+  "external_roots_preserved": [
+    "/cluster/work/igp_psr/nedela/structured3d_raw",
+    "/cluster/work/igp_psr/nedela/scannet_raw",
+    "/cluster/work/igp_psr/nedela/scannetpp_data",
+    "/cluster/work/igp_psr/nedela/LitePT",
+    "/cluster/work/igp_psr/nedela/UnSAMv2"
+  ]
+}

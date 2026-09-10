@@ -1,0 +1,14 @@
+# Example resolved arguments for the public-LitePT 2D-only adaptation.
+# The runner still requires explicit paths and an immutable code/data manifest.
+project_name: ${DELIMIT3D_NAME}
+dataset: structured3d
+source_family: 2d
+input_features: rgbn6
+source_cells: [2d/g02, 2d/g05, 2d/g08]
+updates: 256
+backbone_lr: 0.001
+head_lr: 0.003
+sampling_mode: coverage_multigranular_v2
+normalization: sync_batchnorm
+coordinate_normalization_policy: structured3d_local_y_up_to_scannet_z_up_v1
+projection_head: retained_during_adaptation_discarded_for_native_export

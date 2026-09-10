@@ -1,0 +1,16 @@
+# Paths are examples only. Prefer environment variables in env.example.
+project:
+  name_env: DELIMIT3D_NAME
+  default_name: Delimit3D
+roots:
+  work: ${DELIMIT3D_WORK_ROOT}
+  artifact: ${DELIMIT3D_ARTIFACT_ROOT}
+  structured3d: ${DELIMIT3D_STRUCTURED3D_ROOT}
+  scannet: ${DELIMIT3D_SCANNET_ROOT}
+  scannetpp: ${DELIMIT3D_SCANNETPP_ROOT}
+  litept: ${DELIMIT3D_LITEPT_ROOT}
+  unsam: ${DELIMIT3D_UNSAM_ROOT}
+policy:
+  data_and_weights_outside_git: true
+  require_hashes_for_runs: true
+  require_clean_git_for_gpu_jobs: true

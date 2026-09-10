@@ -1,0 +1,10 @@
+# Base dependencies; Euler's LitePT environment already supplies CUDA-specific
+# packages and the external litept module.
+numpy>=1.24
+scipy>=1.10
+torch>=2.0
+PyYAML>=6.0
+Pillow>=9.0
+opencv-python>=4.8
+imageio>=2.20
+plyfile>=0.8

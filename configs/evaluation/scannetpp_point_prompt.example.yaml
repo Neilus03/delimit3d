@@ -1,0 +1,12 @@
+project_name: ${DELIMIT3D_NAME}
+dataset: scannetpp
+split: nvs_sem_val.txt
+scene_count: 50
+prompts_per_object: 4
+minimum_instance_points: 100
+maximum_objects_per_scene: 16
+cosine_threshold: 0.70
+feature_space: native_72d
+query_excluded_from_candidates: true
+ground_truth_used_for: prompt_selection_and_metrics_only
+learned_decoder: false
