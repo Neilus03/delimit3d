@@ -46,6 +46,22 @@ preload through the current Euler mount. The matched decoder should take about
 10 minutes. The end-to-end estimate is therefore 2–2.5 hours, with no 2080 Ti
 allocation.
 
-**Status.** Prepared with immutable code/data/provenance manifests and ready to
-launch. The result and exact hashes will be appended to this file when the run
-finishes.
+**Launch record.** The corrected run started on `pf-pc69.ethz.ch` at
+2026-09-11 00:17:10 CEST with launcher PID `4086876` and two DDP workers on
+two RTX 4090 GPUs. The adaptation log is
+`/home/nedela/delimit3d_runs/logs/adaptation_256_seed20260911_native_20260911.log`.
+The immutable execution-provenance SHA-256 is
+`9a533050a13d9cea592a6f91d9640cd6da28923c2cbe571f1566c85eac486030`; the
+corrected launcher script SHA-256 is
+`dbef400cfe645d12aa6251022bf6113a7f0d3b6fd6db3b6b72259613df0fc21b`.
+
+Two earlier attempts exited before model construction: one used an invalid
+epoch CLI value and the other encountered the runner's refusal to overwrite an
+empty output directory. Their logs are retained as infrastructure provenance;
+neither produced a checkpoint or scientific metric. A detached post-run chain
+(`postprocess PID 4087567`) is waiting on the adaptation and will train the
+matched decoder, aggregate against the copied public arm, and copy the complete
+bundle to Euler only after a valid 256-update checkpoint exists.
+
+**Status.** Running. The result and exact hashes will be appended to this file
+when the run finishes.
