@@ -171,7 +171,12 @@ def _segment_group_indices(
     nonempty = [(int(start), int(end)) for start, end in zip(starts, ends) if end > start]
     if not nonempty:
         return np.empty((0,), dtype=np.int64)
-    return np.concatenate([sort_order[start:end] for start, end in nonempty]).astype(np.int64, copy=False)
+    indices = np.concatenate([sort_order[start:end] for start, end in nonempty]).astype(np.int64, copy=False)
+    # Match ``np.flatnonzero`` from the original freeze helper exactly.  The
+    # ascending point order matters because deterministic query sampling draws
+    # from this array.
+    indices.sort(kind="stable")
+    return indices
 
 
 def _load_object_masks(
