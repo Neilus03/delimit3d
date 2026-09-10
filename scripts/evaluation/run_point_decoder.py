@@ -148,6 +148,32 @@ def _raw_scan_dir(scannetpp_root: Path, scene: str) -> Path:
     return path
 
 
+def _segment_group_indices(
+    seg_indices: np.ndarray,
+    group_segments: Sequence[int],
+    *,
+    sorted_seg_indices: np.ndarray | None = None,
+    sort_order: np.ndarray | None = None,
+) -> np.ndarray:
+    """Return point indices for one segment group without rescanning the scene.
+
+    ScanNet++ annotations contain many segment groups.  Calling ``np.isin``
+    over the full point array once per group is needlessly expensive, so the
+    caller may provide one sorted segment index and reuse it for all groups.
+    """
+
+    if sorted_seg_indices is None or sort_order is None:
+        sort_order = np.argsort(seg_indices, kind="stable")
+        sorted_seg_indices = seg_indices[sort_order]
+    values = np.unique(np.asarray(group_segments, dtype=np.int64))
+    starts = np.searchsorted(sorted_seg_indices, values, side="left")
+    ends = np.searchsorted(sorted_seg_indices, values, side="right")
+    nonempty = [(int(start), int(end)) for start, end in zip(starts, ends) if end > start]
+    if not nonempty:
+        return np.empty((0,), dtype=np.int64)
+    return np.concatenate([sort_order[start:end] for start, end in nonempty]).astype(np.int64, copy=False)
+
+
 def _load_object_masks(
     scene: str,
     *,
@@ -180,6 +206,8 @@ def _load_object_masks(
     if seg_indices.shape != (len(points),):
         raise ValueError(f"{scene}: segments.json does not align with points.npy")
     groups = json.loads((scan / "segments_anno.json").read_text())["segGroups"]
+    sort_order = np.argsort(seg_indices, kind="stable")
+    sorted_seg_indices = seg_indices[sort_order]
 
     masks: dict[int, np.ndarray] = {}
     metadata: list[dict[str, Any]] = []
@@ -192,7 +220,12 @@ def _load_object_masks(
             raise ValueError(f"{scene}: duplicate object id {instance}")
         # The point-to-segment contract is the same mesh-vertex contract used
         # by the existing ScanNet++ frozen validation bundle.
-        indices = np.flatnonzero(np.isin(seg_indices, np.asarray(group["segments"], dtype=np.int64)))
+        indices = _segment_group_indices(
+            seg_indices,
+            group["segments"],
+            sorted_seg_indices=sorted_seg_indices,
+            sort_order=sort_order,
+        )
         if len(indices) < int(minimum_instance_points):
             continue
         masks[instance] = indices.astype(np.int64, copy=False)
@@ -398,13 +431,20 @@ def _rebuild_scene_selection(
     scan = _raw_scan_dir(scannetpp_root, scene)
     seg_indices = np.asarray(json.loads((scan / "segments.json").read_text())["segIndices"], dtype=np.int64)
     groups = json.loads((scan / "segments_anno.json").read_text())["segGroups"]
+    sort_order = np.argsort(seg_indices, kind="stable")
+    sorted_seg_indices = seg_indices[sort_order]
     targets: dict[int, np.ndarray] = {}
     expected_instances = {int(item["instance"]) for item in objects}
     for group in groups:
         instance = int(group["objectId"])
         if instance not in expected_instances:
             continue
-        indices = np.flatnonzero(np.isin(seg_indices, np.asarray(group["segments"], dtype=np.int64)))
+        indices = _segment_group_indices(
+            seg_indices,
+            group["segments"],
+            sorted_seg_indices=sorted_seg_indices,
+            sort_order=sort_order,
+        )
         targets[instance] = indices.astype(np.int64, copy=False)
     if set(targets) != expected_instances:
         raise ValueError(f"{scene}: failed to rebuild all selected target masks")
