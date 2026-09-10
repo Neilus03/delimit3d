@@ -41,10 +41,10 @@ stable representation effect before adding another mechanism or dataset.
 - [S2AM3D (arXiv)](https://arxiv.org/abs/2512.00995)
 
 **Expected cost.** On `pf-pc69` with two RTX 4090 GPUs, native adaptation is
-expected to take about 70 minutes of compute plus up to 50 minutes of source
-preload through the current Euler mount. The matched decoder should take about
-10 minutes. The end-to-end estimate is therefore 2–2.5 hours, with no 2080 Ti
-allocation.
+expected to take about 35–45 minutes of compute for 256 updates plus up to 50
+minutes of source preload through the current Euler mount. The matched decoder
+should take about 10 minutes, followed by a short copy to Euler. The end-to-end
+estimate is therefore about 1.5–2 hours, with no 2080 Ti allocation.
 
 **Launch record.** The corrected run started on `pf-pc69.ethz.ch` at
 2026-09-11 00:17:10 CEST with launcher PID `4086876` and two DDP workers on
