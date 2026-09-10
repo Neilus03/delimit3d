@@ -520,12 +520,11 @@ def _train_scene(
     for start in range(0, len(order), int(batch_size)):
         indices = order[start : start + int(batch_size)].to(device=device)
         optimizer.zero_grad(set_to_none=True)
-        # The decoder's public forward normalizes its inputs and builds the
-        # same relation; feeding relation columns directly would duplicate it.
-        # Split back into point/query features so the contract remains tested.
-        p = features[indices, : decoder.feature_dim]
-        q = features[indices, decoder.feature_dim : 2 * decoder.feature_dim]
-        logits = decoder(p, q)
+        # ``features`` already contains the decoder's four normalized
+        # relations (point, query, difference, product).  Run the shared MLP
+        # directly so the query is not accidentally interpreted as a batch of
+        # independent queries by ``PointConditionedObjectDecoder.forward``.
+        logits = decoder.network(features[indices]).squeeze(-1)
         loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, labels[indices])
         loss.backward()
         optimizer.step()
