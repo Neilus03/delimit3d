@@ -1,0 +1,47 @@
+# Copy this file to the external artifact root and fill in immutable paths.
+# The two arms must point to byte-verified checkpoints from the same LitePT-S*
+# RGBN6 contract.  The validation bundle is the existing 50-scene ScanNet++
+# nvs_sem_val freeze; it is never used to train the decoder.
+experiment_id: delimit3d_scannetpp_point_decoder_v1
+repo_commit: replace_with_git_commit
+seed: 20260910
+
+paths:
+  scannetpp_root: /cluster/work/igp_psr/nedela/scannetpp_data
+  train_pack_root: /cluster/work/igp_psr/nedela/partfield_gt_hierarchy_scannetpp_full_mesh_vertex_prop_rgbn6
+  train_split: /cluster/work/igp_psr/nedela/scannetpp_data/splits/nvs_sem_train.txt
+  val_bundle: /cluster/work/igp_psr/nedela/chorus_scannetpp_prompt_20260910_r1
+  litept_root: /cluster/work/igp_psr/nedela/LitePT
+  output_root: /cluster/work/igp_psr/nedela/delimit3d/point_decoder_v1
+
+protocol:
+  train_scene_count: 50
+  minimum_instance_points: 100
+  maximum_objects_per_scene: 16
+  prompts_per_object: 4
+  eval_prompts_per_object: 1
+  train_samples_per_class: 512
+  train_batch_size: 8192
+  prediction_chunk_size: 131072
+  decoder_threshold: 0.50
+  cosine_threshold: 0.70
+  click_budget: 1
+  gt_usage: train decoder targets on disjoint ScanNet++ train scenes; validation GT only for prompt selection and metrics
+  candidate_policy: every validation mesh vertex except the clicked point; all non-target points are negatives
+  feature_space: native dec0 72D LitePT backbone features, L2-normalized inside the decoder
+
+decoder:
+  init_seed: 20260910
+  feature_dim: 72
+  hidden_dim: 128
+  bottleneck_dim: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+
+arms:
+  public:
+    checkpoint: /cluster/work/igp_psr/nedela/public_rgbn6_frozen_pg_20260907_r1/assets/public_checkpoint.pth
+    checkpoint_sha256: replace_with_public_sha256
+  delimit3d:
+    checkpoint: /cluster/work/igp_psr/nedela/public_rgbn6_frozen_pg_20260907_r1/results/posttraining_256_r4/checkpoints/audit_e0001_u00000256.pt
+    checkpoint_sha256: replace_with_delimit3d_sha256
