@@ -2,6 +2,13 @@
   "schema_version": "delimit3d_legacy_evidence_index/v1",
   "recorded_at": "2026-09-10",
   "project_name": "Delimit3D",
+  "project_slug": "delimit3d",
+  "repository": {
+    "url": "https://github.com/Neilus03/delimit3d",
+    "default_branch": "main",
+    "euler_checkout": "/cluster/home/nedela/nedela/projects/delimit3d",
+    "external_artifact_root": "/cluster/work/igp_psr/nedela/delimit3d"
+  },
   "legacy_repository": {
     "host": "nedela@euler.ethz.ch",
     "path": "/cluster/home/nedela/nedela/projects/chorus",

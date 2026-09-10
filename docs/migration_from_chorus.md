@@ -5,6 +5,11 @@ checkout at `/cluster/home/nedela/nedela/projects/chorus`, branch
 `cleanup/provenance-preserving-2026-09-08`, commit
 `0948a906cf71dd9a857dd33eef3dd902e0bad6fd`.
 
+The new private GitHub remote is
+`https://github.com/Neilus03/delimit3d`. Its Euler checkout is
+`/cluster/home/nedela/nedela/projects/delimit3d`; external artifacts live under
+`/cluster/work/igp_psr/nedela/delimit3d`.
+
 Copied into the installable `delimit3d` package:
 
 - multigranular proposal sampling and deterministic coverage contracts;
