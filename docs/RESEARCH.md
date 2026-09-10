@@ -20,3 +20,16 @@ historical transfer probes rather than the central success criterion.
 The old CHORUS checkout remains the scientific archive for the rejected
 scratch-to-Mask3D transfer and the complete calibration history. See
 [`../manifests/legacy_evidence.json`](../manifests/legacy_evidence.json).
+
+## Current evidence
+
+The matched frozen-encoder point-decoder endpoint is now the primary decision
+test. The 256-update Delimit3D snapshot improved AP over public LitePT by
+0.0852 on 50 ScanNet++ validation scenes and 777 one-click queries, but its
+fixed-IoU gain was only 0.0113 and did not pass the predeclared gate. Extending
+the identical adaptation to 512 updates reversed the result: AP was 0.1886
+versus 0.4085 for public LitePT and fixed IoU was 0.0510 versus 0.1557. The
+512 snapshot also lowered the frozen cosine readout and feature spread. Thus,
+longer adaptation is not a justified next step by itself; the positive signal,
+if real, is concentrated around an early checkpoint and needs reproducibility
+and retention tests.

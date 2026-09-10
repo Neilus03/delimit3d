@@ -60,3 +60,13 @@ signal, not evidence of a large universal mask-quality gain.
   `runtime/flash_attn_stub.py` under the durable artifact root.  This keeps the
   comparison paired, but the run should be repeated with the native kernel
   before treating small absolute differences as final.
+
+## Native confirmation
+
+The same public-versus-256 comparison was subsequently rerun with the native
+FlashAttention and PointROPE backends on `pf-pc69.ethz.ch`. The learned-decoder
+metrics were unchanged at the decision level (public AP 0.40849, Delimit3D AP
+0.49370; public fixed IoU 0.15569, Delimit3D fixed IoU 0.16703), confirming that
+the earlier fast-path result was not caused by the fallback attention path.
+The native output is retained alongside the 512-update duration test at
+`/cluster/work/igp_psr/nedela/delimit3d/point_decoder_native_512_v1/`.
