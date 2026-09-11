@@ -30,6 +30,26 @@ fixed-IoU gain was only 0.0113 and did not pass the predeclared gate. Extending
 the identical adaptation to 512 updates reversed the result: AP was 0.1886
 versus 0.4085 for public LitePT and fixed IoU was 0.0510 versus 0.1557. The
 512 snapshot also lowered the frozen cosine readout and feature spread. Thus,
-longer adaptation is not a justified next step by itself; the positive signal,
-if real, is concentrated around an early checkpoint and needs reproducibility
-and retention tests.
+longer adaptation is not a justified next step by itself. The independent
+training-seed repeat (training seed `20260911`, exact seed-42 initialization
+and fixed evaluation pack) reached a similar native fixed-panel cosine gap of
+`0.3502`, but its matched fresh point decoder scored AP `0.3220` and fixed IoU
+`0.0709`, versus public LitePT AP `0.4085` and fixed IoU `0.1557`. Paired-scene
+AP was positive on only `6/50` scenes and fixed IoU on `1/50`; the learned
+decoder integrity checks passed and the encoder remained frozen. The
+predeclared reproducibility gate failed. The sampled contrastive loss still
+decreased from `6.7275` at update 1 to `4.8457` at update 256, showing that
+objective optimization alone did not predict transfer.
+
+The combined evidence is now that the apparent seed-42 256-update transfer
+gain is not reproducible under the same learned-decoder protocol, while the
+512-update endpoint is clearly harmful. Fixed cosine separation and ordinary
+upstream loss are therefore representation diagnostics rather than sufficient
+transfer criteria. We should stop scaling this adaptation recipe and only
+launch another run after specifying a new mechanism-level hypothesis and the
+same matched point-conditioned gate. Mask3D/PointGroup numbers remain
+historical probes; the current scientific scope is point-conditioned,
+class-agnostic object/part selection.
+
+The full seed-repeat provenance and artifact hashes are recorded in
+[`results/adaptation_256_seed20260911_native_4090.md`](results/adaptation_256_seed20260911_native_4090.md).

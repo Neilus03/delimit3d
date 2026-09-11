@@ -90,10 +90,67 @@ launcher SHA-256 is
 `efbd6b7e8ea20e44d3b6aed2c3c16fd0bbfd90558157f97d23310217167627ab`.
 The run uses training/sampling seed `20260911`, initialization seed `42`, and
 fixed-evaluation seed `42`; no 2080 Ti is allocated. The detached matched
-decoder postprocess is waiting as PID `4187827` and will run only after the
-checkpoint and run summary pass their existence checks.
+decoder postprocess was launched as PID `4187827` after the checkpoint and run
+summary existence checks passed, and its completed report is recorded below.
 
-**Status.** The repeat is currently in full source preload (1,465 scenes per
-rank); no update or scientific metric has been produced yet. The result and
-exact checkpoint/metric hashes will be appended to this file when the run and
-matched decoder finish.
+**Result.** The corrected repeat completed successfully on the two RTX 4090s.
+The adaptation took `2036.0058015063405` seconds after model construction
+(about 33.9 minutes; the end-to-end wall time was longer because the Euler
+source mount was preloaded). The sampled training loss decreased from `6.7275`
+at update 1 to `4.8457` at update 256, so the upstream objective did optimize.
+The final raw endpoint reported a fixed-comparable native dec0 cosine gap of
+`0.35023377887784574`, native-selection macro gap of `0.3546075248256481`,
+effective rank `6.682948679663241`, mean feature standard deviation
+`1.0274802053172607`, and minimum feature standard deviation
+`0.030919020995497704`. All recorded mechanics, finite-value, source-cell,
+seed-contract, world-size, and provenance checks passed. The formal
+`health_selection_status` remains
+`pending_external_five_stage_bn_recalibrated_gate` because that external
+sidecar was not run; this raw checkpoint is therefore not production
+qualified.
+
+The checkpoint and run summary are immutable and have been copied to Euler
+and the shared work filesystem:
+
+| artifact | path | SHA-256 |
+|---|---|---|
+| run summary | `/cluster/work/igp_psr/nedela/delimit3d/adaptation_256_seed20260911_native_20260911_r2/run_summary.json` | `b04e141010ecb36cc2309908cacb3d6e05f9bfccfa2a58719dd324895f4c426a` |
+| adapted checkpoint | `/cluster/work/igp_psr/nedela/delimit3d/adaptation_256_seed20260911_native_20260911_r2/checkpoints/audit_e0001_u00000256.pt` | `8d8189693c8edd25a25da9a22ec51a3b35a84b938e94ba25f5da12b14bca6400` |
+| metrics trace | `/cluster/work/igp_psr/nedela/delimit3d/adaptation_256_seed20260911_native_20260911_r2/metrics.jsonl` | `7505ce4526f3477335840e1914129c7f4d49ea99215968d416bbaf4cf4e8156d` |
+| resolved config | `/cluster/work/igp_psr/nedela/delimit3d/adaptation_256_seed20260911_native_20260911_r2/resolved_config.json` | `5111fcd8b6109369de23087abf38a9054ae0203b7029f19b3fa6aaaadfecf3f0` |
+| execution provenance | `/cluster/work/igp_psr/nedela/delimit3d/prep/adaptation_256_seed20260911_native_20260911_r2/execution_provenance.json` | `a362bb1fd04708fbce23c6f6238e9c3aa7627932ff1d700a6714582a0a053a08` |
+
+The same fresh point-conditioned decoder was then trained on the frozen
+public and adapted features using the existing 50/50 ScanNet++ split, 777
+objects/queries, one click per query, and 45,697 trainable decoder parameters.
+The decoder report passed its internal integrity checks and confirmed
+`encoder_state_unchanged=true`.
+
+| frozen encoder | AP | fixed IoU | precision | recall | oracle IoU | F1 |
+|---|---:|---:|---:|---:|---:|---:|
+| public LitePT | 0.408487 | 0.155685 | 0.188703 | 0.840771 | 0.330785 | 0.231693 |
+| Delimit3D, 256 updates, seed `20260911` | 0.322039 | 0.070943 | 0.081946 | 0.846415 | 0.254696 | 0.117214 |
+| adapted minus public | -0.086449 | -0.084743 | -0.106757 | +0.005644 | -0.076088 | -0.114479 |
+
+The preregistered transfer gate therefore **failed**. Paired-scene AP was
+positive on only `6/50` scenes (negative on `44/50`); fixed IoU was positive on
+`1/50` and negative on `49/50`; oracle IoU was positive on `5/50` and
+negative on `45/50`. The aggregate is not a thresholding accident: recall is
+roughly unchanged, while precision, fixed IoU, oracle IoU, and F1 all fall.
+
+This is a negative reproducibility result. The repeat reaches a native fixed
+cosine gap (`0.3502`) comparable to the earlier seed-42 256-update endpoint
+(approximately `0.3466`), yet the matched learned-decoder transfer regresses
+strongly. Together with the already negative 512-update result, this means
+that the early fixed-feature separation signal is seed- or endpoint-sensitive
+and is not sufficient evidence of a reliable downstream initialization gain.
+The correct decision under the preregistered rule is to stop scaling this
+recipe or launching another blind seed/duration run. Any next experiment must
+change a justified mechanism (for example decoder calibration or an explicit
+3D-consistency objective) and be preregistered against the same matched
+decoder gate.
+
+The matched aggregate is stored at
+`/cluster/work/igp_psr/nedela/delimit3d/point_decoder_seed20260911_v1/aggregate.json`
+with SHA-256
+`bab5169e01ad870a3fd68dc6224e04d3ef4a0acda3fcfa5405af24457224ecf2`.
