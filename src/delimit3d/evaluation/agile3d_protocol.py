@@ -200,12 +200,39 @@ def load_bundle_scene(record: Mapping[str, Any]) -> tuple[np.ndarray, np.ndarray
     return points, colors, normals, objects, masks
 
 
+def pairwise_disjoint_map(
+    object_ids: Sequence[int],
+    masks: Mapping[int, np.ndarray],
+) -> dict[tuple[int, int], bool]:
+    """Precompute raw-mask disjointness once per scene for fast resampling."""
+    values = {
+        int(object_id): np.asarray(masks[int(object_id)], dtype=np.int64)
+        for object_id in object_ids
+    }
+    return {
+        (left, right): bool(
+            np.intersect1d(values[left], values[right], assume_unique=True).size == 0
+        )
+        for index, left in enumerate(sorted(values))
+        for right in sorted(values)[index + 1 :]
+    }
+
+
 def objects_non_overlapping(
     object_ids: Sequence[int],
     masks: Mapping[int, np.ndarray],
+    *,
+    pairwise_disjoint: Mapping[tuple[int, int], bool] | None = None,
 ) -> bool:
+    candidates = sorted(int(value) for value in object_ids)
+    if pairwise_disjoint is not None:
+        return all(
+            bool(pairwise_disjoint.get((left, right), pairwise_disjoint.get((right, left), False)))
+            for index, left in enumerate(candidates)
+            for right in candidates[index + 1 :]
+        )
     seen: set[int] = set()
-    for object_id in object_ids:
+    for object_id in candidates:
         values = set(np.asarray(masks[int(object_id)], dtype=np.int64).tolist())
         if seen.intersection(values):
             return False
@@ -220,6 +247,7 @@ def choose_non_overlapping_group(
     *,
     rng: np.random.Generator,
     max_attempts: int = 1000,
+    pairwise_disjoint: Mapping[tuple[int, int], bool] | None = None,
 ) -> tuple[list[int], int]:
     """Choose a deterministic tuple, recording the number of rejected draws."""
     candidates = sorted(int(value) for value in object_ids)
@@ -228,7 +256,7 @@ def choose_non_overlapping_group(
     rejected = 0
     for _ in range(int(max_attempts)):
         trial = sorted(int(value) for value in rng.choice(candidates, count, replace=False))
-        if objects_non_overlapping(trial, masks):
+        if objects_non_overlapping(trial, masks, pairwise_disjoint=pairwise_disjoint):
             return trial, rejected
         rejected += 1
     # Fail closed only after deterministic exhaustive fallback. This preserves
@@ -237,7 +265,7 @@ def choose_non_overlapping_group(
 
     for trial_tuple in itertools.combinations(candidates, count):
         trial = list(trial_tuple)
-        if objects_non_overlapping(trial, masks):
+        if objects_non_overlapping(trial, masks, pairwise_disjoint=pairwise_disjoint):
             return trial, rejected
     raise RuntimeError(f"no non-overlapping tuple of size {count} exists")
 
@@ -559,6 +587,7 @@ __all__ = [
     "load_training_scene",
     "metric_at_threshold",
     "objects_non_overlapping",
+    "pairwise_disjoint_map",
     "paired_scene_bootstrap",
     "panel_click_thresholds",
     "raw_object_ious",

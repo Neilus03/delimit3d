@@ -501,9 +501,10 @@ def _build_panels(
                 {"scene": scene, "objects": [object_id], "rejected_draws": 0}
             )
         rng = np.random.default_rng(scene_seed(seed, scene, "validation-panels"))
+        disjoint = pairwise_disjoint_map(object_ids, masks)
         if len(object_ids) >= 5:
             group, rejected = choose_non_overlapping_group(
-                object_ids, masks, 5, rng=rng
+                object_ids, masks, 5, rng=rng, pairwise_disjoint=disjoint
             )
             panels["MO-5"].append(
                 {"scene": scene, "objects": group, "rejected_draws": int(rejected)}
@@ -512,7 +513,7 @@ def _build_panels(
             skipped.append({"panel": "MO-5", "scene": scene, "reason": "fewer_than_five_objects"})
         if len(object_ids) >= 10:
             group, rejected = choose_non_overlapping_group(
-                object_ids, masks, 10, rng=rng
+                object_ids, masks, 10, rng=rng, pairwise_disjoint=disjoint
             )
             panels["MO-10"].append(
                 {"scene": scene, "objects": group, "rejected_draws": int(rejected)}
@@ -538,6 +539,13 @@ def _build_training_schedule(
         str(record["scene"]): _load_record_arrays(record)[4]
         for record in train_records
     }
+    disjoint_by_scene = {
+        str(record["scene"]): pairwise_disjoint_map(
+            [int(item["instance"]) for item in record["objects"]],
+            masks_by_scene[str(record["scene"])],
+        )
+        for record in train_records
+    }
     for update in range(1, int(updates) + 1):
         scene_index = int(rng.integers(0, len(train_records)))
         record = train_records[scene_index]
@@ -552,6 +560,7 @@ def _build_training_schedule(
             masks,
             count,
             rng=rng,
+            pairwise_disjoint=disjoint_by_scene[str(record["scene"])],
         )
         rejected_total += int(rejected)
         schedule.append(
