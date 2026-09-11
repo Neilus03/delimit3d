@@ -24,32 +24,28 @@ scratch-to-Mask3D transfer and the complete calibration history. See
 ## Current evidence
 
 The matched frozen-encoder point-decoder endpoint is now the primary decision
-test. The 256-update Delimit3D snapshot improved AP over public LitePT by
-0.0852 on 50 ScanNet++ validation scenes and 777 one-click queries, but its
-fixed-IoU gain was only 0.0113 and did not pass the predeclared gate. Extending
-the identical adaptation to 512 updates reversed the result: AP was 0.1886
-versus 0.4085 for public LitePT and fixed IoU was 0.0510 versus 0.1557. The
-512 snapshot also lowered the frozen cosine readout and feature spread. Thus,
-longer adaptation is not a justified next step by itself. The independent
-training-seed repeat (training seed `20260911`, exact seed-42 initialization
-and fixed evaluation pack) reached a similar native fixed-panel cosine gap of
-`0.3502`, but its matched fresh point decoder scored AP `0.3220` and fixed IoU
-`0.0709`, versus public LitePT AP `0.4085` and fixed IoU `0.1557`. Paired-scene
-AP was positive on only `6/50` scenes and fixed IoU on `1/50`; the learned
-decoder integrity checks passed and the encoder remained frozen. The
-predeclared reproducibility gate failed. The sampled contrastive loss still
-decreased from `6.7275` at update 1 to `4.8457` at update 256, showing that
-objective optimization alone did not predict transfer.
+test. The valid 256-update public-LitePT posttraining snapshot improved AP
+over public LitePT by `0.0852` on 50 ScanNet++ validation scenes and 777
+one-click queries, but its fixed-IoU gain was only `0.0113` and did not pass the
+predeclared gate. A later 512-update run and the 20260911 repeat both recorded
+`public_checkpoint_used=false`: they started from the scratch
+`initial_representative_rgbn6_seed42.pt` artifact and therefore are not valid
+public-initialized duration or seed comparisons. The repeat scored AP `0.3220`
+and fixed IoU `0.0709` against public AP `0.4085` and fixed IoU `0.1557`, but
+that negative aggregate is retained only as a protocol audit. It used backbone
+LR `0.001`, whereas the valid public posttraining run used `0.0001`. The
+sampled contrastive loss still decreased from `6.7275` at update 1 to `4.8457`
+at update 256, showing that objective optimization alone did not predict
+transfer, but this run cannot test public-posttraining reproducibility.
 
-The combined evidence is now that the apparent seed-42 256-update transfer
-gain is not reproducible under the same learned-decoder protocol, while the
-512-update endpoint is clearly harmful. Fixed cosine separation and ordinary
-upstream loss are therefore representation diagnostics rather than sufficient
-transfer criteria. We should stop scaling this adaptation recipe and only
-launch another run after specifying a new mechanism-level hypothesis and the
-same matched point-conditioned gate. Mask3D/PointGroup numbers remain
-historical probes; the current scientific scope is point-conditioned,
-class-agnostic object/part selection.
+The combined evidence is not yet enough to decide whether public-LitePT
+posttraining is seed-stable or whether longer public-initialized adaptation is
+harmful. Fixed cosine separation and ordinary upstream loss remain
+representation diagnostics rather than sufficient transfer criteria. Before
+changing the mechanism, we need one correctly public-initialized repeat with
+the original `0.0001` backbone LR and the same matched point-conditioned gate.
+Mask3D/PointGroup numbers remain historical probes; the current scientific
+scope is point-conditioned, class-agnostic object/part selection.
 
 The full seed-repeat provenance and artifact hashes are recorded in
 [`results/adaptation_256_seed20260911_native_4090.md`](results/adaptation_256_seed20260911_native_4090.md).

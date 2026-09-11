@@ -1,12 +1,27 @@
 # Independent-seed 256-update adaptation — preregistered plan
 
-This is the next experiment after the completed 512-update duration test. It
-keeps the Delimit3D recipe, RGBN6 contract, source cells, fixed evaluation pack,
-initial public LitePT state, world size, optimizer settings, and downstream
-protocol unchanged. The only scientific change is the stochastic seed: the
-previous 256-update result used seed 42; this run uses seed 20260911. The
-checkpoint will be evaluated with the same matched fresh point-conditioned
-decoder on the same 50/50 ScanNet++ train/validation scene split.
+> **Protocol correction (2026-09-11).** The completed r2 run below is **not a
+> valid seed-only repeat of public-LitePT posttraining**. It loaded the scratch
+> initialization `initial_representative_rgbn6_seed42.pt` (SHA
+> `bd064e058c3770c652cc5367f7547a97169c2613946a14fae0f126859e3f15a7`,
+> `public_checkpoint_used=false`) and used backbone LR `0.001`. The earlier
+> positive public-posttraining run loaded `public_initial.pt` (SHA
+> `67785e9d66881225aea61c090850d14f11e754978004f5e2e55200103a096db8`, with
+> public LitePT backbone SHA
+> `86408c6371555aeee2a8eda1184b55a411f9748784c275349149b509b661d518`) and
+> used backbone LR `0.0001`. The downstream decoder was matched, but the
+> encoder starting point and LR were not. The negative aggregate is retained
+> as a protocol/infrastructure diagnostic and must not be used as evidence
+> that public-LitePT posttraining fails.
+
+This was intended as the next experiment after the completed 512-update
+duration test. The intended design kept the Delimit3D recipe, RGBN6 contract,
+source cells, fixed evaluation pack, **public** LitePT initialization, world
+size, optimizer settings, and downstream protocol unchanged. The only planned
+scientific change was the stochastic training seed: the previous 256-update
+result used seed 42; this run used seed 20260911. Because the actual r2 launch
+did not use the public initialization, the planned reproducibility hypothesis
+was not tested.
 
 **Causal hypothesis.** If the 256-update transfer gain reflects a stable effect
 of multigranular 2D pseudomask adaptation rather than one favorable stochastic
@@ -20,11 +35,12 @@ and clears the existing broad feature-health checks without a new concentration
 warning. The same learned-decoder gate is used for the prior 256 result and for
 this seed; no threshold will be changed after seeing the result.
 
-**Decision rule.** If this seed also passes, the 256-update effect is sufficiently
-reproducible to justify a second seed or a narrowly regularized continuation,
-followed by a standard multi-click curve. If it fails while the public arm and
-protocol remain valid, the original 256 gain is treated as seed-sensitive and we
-stop scaling this recipe. A failed run is still retained as evidence.
+**Decision rule.** If a correctly public-initialized seed repeat passes, the
+256-update effect is sufficiently reproducible to justify a second seed or a
+narrowly regularized continuation, followed by a standard multi-click curve.
+If it fails while the public arm and protocol remain valid, the original 256
+gain is treated as seed-sensitive. The completed r2 run cannot trigger either
+branch because its initialization and LR do not match the intended experiment.
 
 The choice follows the experimental logic in related work. PARTFIELD learns a
 feedforward part feature field from mixed 2D and 3D proposals using contrastive
@@ -88,12 +104,16 @@ execution-provenance SHA-256 is
 `a362bb1fd04708fbce23c6f6238e9c3aa7627932ff1d700a6714582a0a053a08`, and the
 launcher SHA-256 is
 `efbd6b7e8ea20e44d3b6aed2c3c16fd0bbfd90558157f97d23310217167627ab`.
-The run uses training/sampling seed `20260911`, initialization seed `42`, and
-fixed-evaluation seed `42`; no 2080 Ti is allocated. The detached matched
-decoder postprocess was launched as PID `4187827` after the checkpoint and run
-summary existence checks passed, and its completed report is recorded below.
+The run uses training/sampling seed `20260911`, initialization artifact seed
+`42`, and fixed-evaluation seed `42`; no 2080 Ti is allocated. The detached
+matched decoder postprocess was launched as PID `4187827` after the checkpoint
+and run-summary existence checks passed, and its completed report is recorded
+below. The initialization artifact is explicitly scratch, as recorded in the
+run summary; the seed value `42` does not make it the public checkpoint.
 
-**Result.** The corrected repeat completed successfully on the two RTX 4090s.
+**Result.** The corrected runner completed the r2 protocol on the two RTX
+4090s, but the scientific repeat was invalidated by the initialization mismatch
+described above.
 The adaptation took `2036.0058015063405` seconds after model construction
 (about 33.9 minutes; the end-to-end wall time was longer because the Euler
 source mount was preloaded). The sampled training loss decreased from `6.7275`
@@ -121,7 +141,7 @@ and the shared work filesystem:
 | execution provenance | `/cluster/work/igp_psr/nedela/delimit3d/prep/adaptation_256_seed20260911_native_20260911_r2/execution_provenance.json` | `a362bb1fd04708fbce23c6f6238e9c3aa7627932ff1d700a6714582a0a053a08` |
 
 The same fresh point-conditioned decoder was then trained on the frozen
-public and adapted features using the existing 50/50 ScanNet++ split, 777
+public and scratch-initialized adapted features using the existing 50/50 ScanNet++ split, 777
 objects/queries, one click per query, and 45,697 trainable decoder parameters.
 The decoder report passed its internal integrity checks and confirmed
 `encoder_state_unchanged=true`.
@@ -129,26 +149,28 @@ The decoder report passed its internal integrity checks and confirmed
 | frozen encoder | AP | fixed IoU | precision | recall | oracle IoU | F1 |
 |---|---:|---:|---:|---:|---:|---:|
 | public LitePT | 0.408487 | 0.155685 | 0.188703 | 0.840771 | 0.330785 | 0.231693 |
-| Delimit3D, 256 updates, seed `20260911` | 0.322039 | 0.070943 | 0.081946 | 0.846415 | 0.254696 | 0.117214 |
+| Delimit3D, 256 updates from scratch initialization, seed `20260911` | 0.322039 | 0.070943 | 0.081946 | 0.846415 | 0.254696 | 0.117214 |
 | adapted minus public | -0.086449 | -0.084743 | -0.106757 | +0.005644 | -0.076088 | -0.114479 |
 
-The preregistered transfer gate therefore **failed**. Paired-scene AP was
+The numerical gate would be **false for this mismatched comparison**, but it is
+not a valid application of the preregistered public-posttraining gate.
+Paired-scene AP was
 positive on only `6/50` scenes (negative on `44/50`); fixed IoU was positive on
 `1/50` and negative on `49/50`; oracle IoU was positive on `5/50` and
 negative on `45/50`. The aggregate is not a thresholding accident: recall is
 roughly unchanged, while precision, fixed IoU, oracle IoU, and F1 all fall.
 
-This is a negative reproducibility result. The repeat reaches a native fixed
-cosine gap (`0.3502`) comparable to the earlier seed-42 256-update endpoint
-(approximately `0.3466`), yet the matched learned-decoder transfer regresses
-strongly. Together with the already negative 512-update result, this means
-that the early fixed-feature separation signal is seed- or endpoint-sensitive
-and is not sufficient evidence of a reliable downstream initialization gain.
-The correct decision under the preregistered rule is to stop scaling this
-recipe or launching another blind seed/duration run. Any next experiment must
-change a justified mechanism (for example decoder calibration or an explicit
-3D-consistency objective) and be preregistered against the same matched
-decoder gate.
+This is a **protocol-audit result, not a negative reproducibility result**. It
+shows that a scratch-initialized 256-update model with the current high LR
+performs below public LitePT under the matched decoder. It does not tell us
+whether the public-LitePT posttraining effect is seed-stable. The earlier
+512-update run also recorded `public_checkpoint_used=false`, so its negative
+duration comparison cannot be interpreted as a public-initialized 256-versus-
+512 study either. The next scientifically valid action is one correctly
+public-initialized repeat using public-initialization SHA
+`67785e9d...` and the original public-posttraining LR `0.0001`, with every
+other artifact and the matched decoder held fixed. No such correction has
+been launched yet.
 
 The matched aggregate is stored at
 `/cluster/work/igp_psr/nedela/delimit3d/point_decoder_seed20260911_v1/aggregate.json`
