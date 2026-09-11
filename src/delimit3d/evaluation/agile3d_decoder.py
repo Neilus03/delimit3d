@@ -62,10 +62,10 @@ class _SelfAttentionLayer(nn.Module):
         if self.pre_norm:
             normalized = self.norm(target)
             q = _with_pos(normalized, query_pos)
-            attended = self.attn(q, q, normalized, attn_mask=target_mask)[0]
+            attended = self.attn(q, q, normalized, attn_mask=target_mask, need_weights=False)[0]
             return target + self.dropout(attended)
         q = _with_pos(target, query_pos)
-        attended = self.attn(q, q, target, attn_mask=target_mask)[0]
+        attended = self.attn(q, q, target, attn_mask=target_mask, need_weights=False)[0]
         return self.norm(target + self.dropout(attended))
 
 
@@ -112,6 +112,7 @@ class _CrossAttentionLayer(nn.Module):
                 memory,
                 attn_mask=memory_mask,
                 key_padding_mask=memory_key_padding_mask,
+                need_weights=False,
             )[0]
             return target + self.dropout(attended)
         attended = self.attn(
@@ -120,6 +121,7 @@ class _CrossAttentionLayer(nn.Module):
             memory,
             attn_mask=memory_mask,
             key_padding_mask=memory_key_padding_mask,
+            need_weights=False,
         )[0]
         return self.norm(target + self.dropout(attended))
 
