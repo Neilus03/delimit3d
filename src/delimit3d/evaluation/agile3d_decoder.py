@@ -508,7 +508,14 @@ def click_loss_weights(
     index_tensor = torch.as_tensor(click_indices, device=scene_xyz.device, dtype=torch.long)
     if bool((index_tensor < 0).any()) or bool((index_tensor >= scene_xyz.shape[0]).any()):
         raise IndexError("click index outside scene token range")
-    distances = torch.cdist(scene_xyz, scene_xyz[index_tensor]).min(dim=1).values
+    click_points = scene_xyz[index_tensor]
+    # Chunk the exact cdist computation so a large dec0 scene and a 200-event
+    # prefix do not materialize one enormous [tokens, clicks] matrix.
+    chunks: list[Tensor] = []
+    for start in range(0, int(scene_xyz.shape[0]), 131072):
+        stop = min(start + 131072, int(scene_xyz.shape[0]))
+        chunks.append(torch.cdist(scene_xyz[start:stop], click_points).min(dim=1).values)
+    distances = torch.cat(chunks, dim=0)
     clipped = distances.clamp(max=float(radius))
     return float(alpha) + (float(beta) - float(alpha)) * (1.0 - clipped / float(radius))
 

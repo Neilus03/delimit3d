@@ -1821,6 +1821,11 @@ def smoke(config: Mapping[str, Any]) -> dict[str, Any]:
         )
         del decoder
         torch.cuda.empty_cache()
+    init_hashes = {str(row["init_hash"]) for row in reports}
+    if len(init_hashes) != 1:
+        raise RuntimeError(f"public and Delimit3D smoke decoders do not share initialization: {init_hashes}")
+    if any(not bool(row["encoder_state_unchanged"]) for row in reports):
+        raise RuntimeError("encoder hash invariant failed during smoke")
     dense_prediction, dense_target, dense_xyz = _dense_smoke_fixture()
     dense = [
         {
