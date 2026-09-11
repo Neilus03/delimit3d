@@ -72,9 +72,28 @@ The repository now contains a focused seed-contract fix: `--seed` remains the
 training/sampling seed, while `--initialization-seed` and `--fixed-eval-seed`
 allow a controlled repeat to retain the exact seed-42 initialization and fixed
 evaluation pack. The fix also records both artifact seeds in the resolved
-configuration and adds a unit test. It will be copied to the execution host,
-compiled, and smoke-tested before relaunch; the scientific success gate is
-unchanged.
+configuration and adds a unit test. The updated runner was copied to the
+execution host, compiled, imported successfully, and its new CLI flags were
+checked before relaunch. The full experiment itself is the real two-rank GPU
+integration check because it exercises the same DDP, source preload, fixed-pack,
+initialization, and update path used for the scientific result.
 
-**Status.** Relaunch pending host recovery and the seed-contract preflight. The
-result and exact hashes will be appended to this file when the run finishes.
+**Relaunch record.** The corrected repeat was launched on `pf-pc69.ethz.ch` at
+2026-09-11 06:58:56 CEST with launcher PID `4187463` and DDP workers
+`4187491/4187492` on two RTX 4090 GPUs. Its log is
+`/home/nedela/delimit3d_runs/logs/adaptation_256_seed20260911_native_20260911_r2.log`.
+The immutable code-manifest SHA-256 is
+`20d73f11b6661653819e012da69d4539a83fb2b6ac59db20c9821cbecdd5945c`, the
+execution-provenance SHA-256 is
+`a362bb1fd04708fbce23c6f6238e9c3aa7627932ff1d700a6714582a0a053a08`, and the
+launcher SHA-256 is
+`efbd6b7e8ea20e44d3b6aed2c3c16fd0bbfd90558157f97d23310217167627ab`.
+The run uses training/sampling seed `20260911`, initialization seed `42`, and
+fixed-evaluation seed `42`; no 2080 Ti is allocated. The detached matched
+decoder postprocess is waiting as PID `4187827` and will run only after the
+checkpoint and run summary pass their existence checks.
+
+**Status.** The repeat is currently in full source preload (1,465 scenes per
+rank); no update or scientific metric has been produced yet. The result and
+exact checkpoint/metric hashes will be appended to this file when the run and
+matched decoder finish.
