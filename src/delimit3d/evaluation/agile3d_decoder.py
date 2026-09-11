@@ -291,13 +291,21 @@ class Agile3DClickDecoder(nn.Module):
         normalized_times.setdefault(0, [])
         return normalized, normalized_times, len(positive)
 
-    def _position_encoding(self, xyz: Tensor) -> Tensor:
-        """Return normalized Fourier position encodings with shape [N, hidden]."""
+    def _position_encoding(
+        self,
+        xyz: Tensor,
+        *,
+        reference_xyz: Tensor | None = None,
+    ) -> Tensor:
+        """Return Fourier encodings normalized against the complete scene range."""
         if xyz.ndim != 2 or xyz.shape[-1] != 3:
             raise ValueError(f"xyz must be [N,3], got {tuple(xyz.shape)}")
+        reference = xyz if reference_xyz is None else reference_xyz
+        if reference.ndim != 2 or reference.shape[-1] != 3 or reference.shape[0] == 0:
+            raise ValueError("reference_xyz must be a non-empty [N,3] tensor")
         with torch.no_grad():
-            minimum = xyz.min(dim=0).values
-            maximum = xyz.max(dim=0).values
+            minimum = reference.min(dim=0).values
+            maximum = reference.max(dim=0).values
             if self.normalize_pos_enc:
                 scale = (maximum - minimum).clamp_min(1e-6)
                 normalized = (xyz - minimum) / scale
@@ -330,7 +338,9 @@ class Agile3DClickDecoder(nn.Module):
                 raise ValueError("click time exceeds temporal encoding capacity")
             fg_features.append(scene_features[index_tensor])
             fg_positions.append(
-                self._position_encoding(scene_xyz[index_tensor])
+                self._position_encoding(
+                    scene_xyz[index_tensor], reference_xyz=scene_xyz
+                )
                 + self.time_encode[time_tensor].to(scene_features.device)
             )
             fg_splits.append(len(indices))
@@ -349,7 +359,9 @@ class Agile3DClickDecoder(nn.Module):
             bg_positions = torch.cat(
                 (
                     bg_positions,
-                    self._position_encoding(scene_xyz[index_tensor])
+                    self._position_encoding(
+                        scene_xyz[index_tensor], reference_xyz=scene_xyz
+                    )
                     + self.time_encode[time_tensor].to(scene_features.device),
                 ),
                 dim=0,

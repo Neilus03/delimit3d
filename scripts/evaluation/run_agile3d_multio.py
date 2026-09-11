@@ -72,7 +72,7 @@ from delimit3d.evaluation.agile3d_protocol import (
 
 
 SCHEMA = "delimit3d_scannetpp_agile3d_multio/v1"
-CACHE_SCHEMA = "delimit3d_agile3d_feature_cache/v1"
+CACHE_SCHEMA = "delimit3d_agile3d_feature_cache/v2"
 TRAIN_SCHEMA = "delimit3d_agile3d_decoder_training/v1"
 CHECKPOINT_SCHEMA = "delimit3d_agile3d_decoder_checkpoint/v1"
 
@@ -273,6 +273,22 @@ exec "$PYTHON" "$REPO_ROOT/scripts/evaluation/run_agile3d_multio.py" --config "$
         "source_archive": str(archive),
         "source_archive_sha256": source_manifest["archive_sha256"],
         "launcher": str(launcher),
+    }
+
+
+def wrapper_settings(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Canonical frozen LitePT wrapper and input-contract settings."""
+    protocol = config["protocol"]
+    return {
+        "in_channels": 6,
+        "grid_size": float(protocol["voxel_size_m"]),
+        "litept_variant": "litept_s_star",
+        "multi_scale": False,
+        "voxel_reduce": str(protocol["voxel_reduce"]),
+        "representative_sampling": str(protocol["representative_sampling"]),
+        "active_litept_level": str(protocol["active_litept_level"]),
+        "rgbn6_contract": str(protocol["rgbn6_contract"]),
+        "center_contract": "center XY and ground Z",
     }
 
 
@@ -738,6 +754,13 @@ def load_prepared(config: Mapping[str, Any]) -> tuple[dict[str, Any], Path]:
         raise ValueError("selection manifest hash mismatch")
     if manifest.get("schema") != SCHEMA:
         raise ValueError("selection manifest schema mismatch")
+    if manifest.get("repo_commit") != effective_commit(config):
+        raise ValueError("selection manifest was created from another code commit")
+    freeze = manifest.get("freeze", {})
+    for key in ("resolved_config", "environment", "source_manifest", "source_archive", "launcher"):
+        value = freeze.get(key)
+        if not value or not Path(str(value)).exists():
+            raise ValueError(f"selection manifest freeze artifact missing: {key}")
     init_path = resolve_external(manifest["decoder_initialization_path"])
     _decoder, report = load_initialization(
         init_path,
@@ -864,6 +887,7 @@ def cache_features(config: Mapping[str, Any], arm: str) -> dict[str, Any]:
     root = output_root(config)
     records = _scene_record_map(manifest)
     cache_rows: list[dict[str, Any]] = []
+    settings = wrapper_settings(config)
     all_records = list(manifest["train_scenes"]) + list(manifest["validation_scenes"])
     for index, record in enumerate(all_records):
         scene = str(record["scene"])
@@ -874,6 +898,12 @@ def cache_features(config: Mapping[str, Any], arm: str) -> dict[str, Any]:
                 raise ValueError(f"{cache_path}: cache schema mismatch")
             if payload.get("checkpoint_sha256") != observed:
                 raise ValueError(f"{cache_path}: cache belongs to another checkpoint")
+            if payload.get("selection_manifest_sha256") != manifest["manifest_sha256"]:
+                raise ValueError(f"{cache_path}: cache belongs to another selection manifest")
+            if payload.get("wrapper_settings") != settings:
+                raise ValueError(f"{cache_path}: wrapper settings drift")
+            if payload.get("repo_commit") != effective_commit(config):
+                raise ValueError(f"{cache_path}: code commit drift")
             cache_rows.append(
                 {
                     "scene": scene,
@@ -888,6 +918,8 @@ def cache_features(config: Mapping[str, Any], arm: str) -> dict[str, Any]:
         payload = _extract_one_scene(model, record, config=config, device=device)
         payload["checkpoint_sha256"] = observed
         payload["encoder_tensor_sha256"] = encoder_before
+        payload["selection_manifest_sha256"] = manifest["manifest_sha256"]
+        payload["wrapper_settings"] = settings
         payload["repo_commit"] = effective_commit(config)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(payload, cache_path)
@@ -928,6 +960,8 @@ def cache_features(config: Mapping[str, Any], arm: str) -> dict[str, Any]:
         "encoder_tensor_sha256_before": encoder_before,
         "encoder_tensor_sha256_after": encoder_after,
         "encoder_state_unchanged": encoder_before == encoder_after,
+        "selection_manifest_sha256": manifest["manifest_sha256"],
+        "wrapper_settings": settings,
         "repo_commit": effective_commit(config),
         "cache_rows": cache_rows,
         "cache_count": len(cache_rows),
