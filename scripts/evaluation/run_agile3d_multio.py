@@ -1765,11 +1765,16 @@ def smoke(config: Mapping[str, Any]) -> dict[str, Any]:
         xyz = cache["scene_xyz"].to(device=device, dtype=torch.float32)
         decoder.eval()
         with torch.inference_mode():
-            output = decoder(features, xyz, clicks=clicks, click_times=times)
-        logits = output["pred_masks"]
-        if not torch.isfinite(logits).all():
+            eval_output = decoder(features, xyz, clicks=clicks, click_times=times)
+        eval_logits = eval_output["pred_masks"]
+        if not torch.isfinite(eval_logits).all():
             raise FloatingPointError(f"{arm}: smoke logits are non-finite")
         decoder.train()
+        # Recompute the same state with autograd enabled for the backward/step
+        # check.  Reusing an inference-mode graph would make loss.backward()
+        # invalid even though the decoder forward itself is healthy.
+        output = decoder(features, xyz, clicks=clicks, click_times=times)
+        logits = output["pred_masks"]
         loss, details = compute_agile3d_losses(
             output,
             target.to(device),
