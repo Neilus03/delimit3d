@@ -66,6 +66,7 @@ from delimit3d.evaluation.agile3d_protocol import (
     panel_click_thresholds,
     raw_object_ious,
     read_scene_ids,
+    representative_indices_for_points,
     scene_seed,
     simulated_corrections,
 )
@@ -405,12 +406,14 @@ def _record_source_payload(
     data_path: Path,
     source_hashes: Mapping[str, str],
     kind: str,
+    skipped_objects: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     payload = {
         "scene": str(scene),
         "kind": str(kind),
         "points": int(len(points)),
         "objects": [dict(item) for item in objects],
+        "skipped_objects": [dict(item) for item in skipped_objects],
         "source_hashes": dict(source_hashes),
         "data_path": str(data_path),
         "data_sha256": file_sha256(data_path),
@@ -565,6 +568,42 @@ def _build_training_schedule(
     return schedule
 
 
+def _filter_surviving_objects(
+    points: np.ndarray,
+    objects: Sequence[Mapping[str, Any]],
+    masks: Mapping[int, np.ndarray],
+    *,
+    voxel_size: float,
+) -> tuple[list[dict[str, Any]], dict[int, np.ndarray], list[dict[str, Any]], np.ndarray]:
+    """Reject objects without a deterministic representative dec0 token."""
+    representatives = representative_indices_for_points(
+        points, voxel_size=float(voxel_size)
+    )
+    object_ids = [int(item["instance"]) for item in objects]
+    token_targets = build_token_targets(representatives, masks, object_ids)
+    kept: list[dict[str, Any]] = []
+    kept_masks: dict[int, np.ndarray] = {}
+    skipped: list[dict[str, Any]] = []
+    for item in objects:
+        instance = int(item["instance"])
+        if len(token_targets[instance]) == 0:
+            skipped.append(
+                {
+                    "instance": instance,
+                    "semantic_class": int(item.get("semantic_class", -1)),
+                    "semantic_name": str(item.get("semantic_name", "")),
+                    "instance_points": int(item.get("instance_points", len(masks[instance]))),
+                    "reason": "no_surviving_representative_token",
+                }
+            )
+            continue
+        kept.append(dict(item))
+        kept_masks[instance] = masks[instance]
+    if not kept:
+        raise RuntimeError("scene has no eligible object with a surviving representative token")
+    return kept, kept_masks, skipped, representatives
+
+
 def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
     verify_config(config)
     root = output_root(config)
@@ -595,6 +634,13 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
             class_mapping=mapping,
             minimum_instance_points=int(protocol["minimum_instance_points"]),
             maximum_objects_per_scene=int(protocol["maximum_objects_per_scene"]),
+            seed=int(config["seed"]),
+        )
+        objects, masks, skipped_objects, _representatives = _filter_surviving_objects(
+            points,
+            objects,
+            masks,
+            voxel_size=float(protocol["voxel_size_m"]),
         )
         data_path = train_data_root / f"{scene}.npz"
         _save_scene_npz(
@@ -615,6 +661,7 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
                 data_path=data_path,
                 source_hashes=hashes,
                 kind="training",
+                skipped_objects=skipped_objects,
             )
         )
         print(
@@ -635,12 +682,27 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
         path = resolve_external(record["data_path"])
         if file_sha256(path) != record["data_sha256"]:
             raise ValueError(f"{record['scene']}: frozen validation hash mismatch")
+        points, _colors, _normals, objects, masks = load_bundle_scene(
+            {
+                "scene": str(record["scene"]),
+                "data_path": str(path),
+                "data_sha256": str(record["data_sha256"]),
+                "objects": [dict(item) for item in record["objects"]],
+            }
+        )
+        objects, masks, skipped_objects, _representatives = _filter_surviving_objects(
+            points,
+            objects,
+            masks,
+            voxel_size=float(protocol["voxel_size_m"]),
+        )
         validation_records.append(
             {
                 "scene": str(record["scene"]),
                 "kind": "validation",
                 "points": int(record["points"]),
-                "objects": [dict(item) for item in record["objects"]],
+                "objects": objects,
+                "skipped_objects": skipped_objects,
                 "source_hashes": dict(record.get("source_files", {})),
                 "data_path": str(path),
                 "data_sha256": str(record["data_sha256"]),

@@ -111,6 +111,7 @@ def load_training_scene(
     class_mapping: Mapping[str, str],
     minimum_instance_points: int = 100,
     maximum_objects_per_scene: int = 16,
+    seed: int = 20260911,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[dict[str, Any]], dict[int, np.ndarray], dict[str, str]]:
     """Load one ScanNet++ training scene and category-agnostic object masks."""
     pack = Path(pack_root).expanduser().resolve(strict=True) / scene / "training_pack"
@@ -167,7 +168,7 @@ def load_training_scene(
     objects.sort(key=lambda item: int(item["instance"]))
     before_cap = len(objects)
     if before_cap > int(maximum_objects_per_scene):
-        rng = np.random.default_rng(scene_seed(20260911, scene, "object-cap"))
+        rng = np.random.default_rng(scene_seed(seed, scene, "object-cap"))
         chosen = sorted(
             int(index)
             for index in rng.choice(before_cap, int(maximum_objects_per_scene), replace=False)
@@ -251,6 +252,26 @@ def _token_membership(representatives: np.ndarray, raw_indices: np.ndarray) -> n
     valid = positions < sorted_raw.size
     valid &= sorted_raw[np.minimum(positions, sorted_raw.size - 1)] == representatives
     return np.flatnonzero(valid).astype(np.int64)
+
+
+def representative_indices_for_points(
+    points: np.ndarray,
+    *,
+    voxel_size: float = 0.02,
+) -> np.ndarray:
+    """Mirror representative-first LitePT voxelization deterministically on CPU."""
+    values = np.asarray(points, dtype=np.float32)
+    if values.ndim != 2 or values.shape[1] != 3 or len(values) == 0:
+        raise ValueError("points must be a non-empty [N,3] array")
+    if float(voxel_size) <= 0:
+        raise ValueError("voxel_size must be positive")
+    grid = np.floor(values / float(voxel_size)).astype(np.int64)
+    grid -= grid.min(axis=0)
+    _unique, inverse = np.unique(grid, axis=0, return_inverse=True)
+    order = np.argsort(inverse, kind="stable")
+    counts = np.bincount(inverse, minlength=len(_unique))
+    starts = np.cumsum(counts) - counts
+    return order[starts].astype(np.int64, copy=False)
 
 
 def build_token_targets(
@@ -541,6 +562,7 @@ __all__ = [
     "paired_scene_bootstrap",
     "panel_click_thresholds",
     "raw_object_ious",
+    "representative_indices_for_points",
     "scene_seed",
     "simulated_corrections",
     "token_iou",
