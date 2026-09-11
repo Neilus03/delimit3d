@@ -64,6 +64,7 @@ from delimit3d.evaluation.agile3d_protocol import (
     metric_at_threshold,
     paired_scene_bootstrap,
     panel_click_thresholds,
+    pairwise_disjoint_map,
     raw_object_ious,
     read_scene_ids,
     representative_indices_for_points,
