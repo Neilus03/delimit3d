@@ -66,6 +66,13 @@ bootstrap:
   samples: 10000
   seed: 20260911
 
+gate:
+  primary_panel: MO-5
+  min_iou_at_1_delta: 0.02
+  min_iou_at_5_delta: 0.015
+  ci_lower_strictly_positive: true
+  max_noc_at_80_delta: 0.0
+
 upstream:
   name: AGILE3D
   repository: https://github.com/ywyue/AGILE3D

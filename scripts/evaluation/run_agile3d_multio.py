@@ -24,6 +24,7 @@ import platform
 import random
 import subprocess
 import sys
+import tarfile
 import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -104,13 +105,21 @@ def load_config(path: Path) -> dict[str, Any]:
 
 
 def resolve_external(value: str | Path, *, strict: bool = True) -> Path:
-    """Resolve Euler paths directly or through pf-pc69's read-only sshfs mount."""
+    """Resolve Euler paths directly or through an optional pf-pc69 SSHFS mount."""
     path = Path(str(value)).expanduser()
     if path.exists():
         return path.resolve(strict=strict)
     if str(path).startswith("/cluster/"):
-        mounted = Path("/tmp/euler_cluster_nedela") / str(path).removeprefix("/cluster/")
-        return mounted.resolve(strict=strict)
+        relative = str(path).removeprefix("/cluster/")
+        mounts = []
+        configured_mount = os.environ.get("DELIMIT3D_EULER_MOUNT")
+        if configured_mount:
+            mounts.append(Path(configured_mount))
+        mounts.extend((Path("/tmp/euler_cluster_nedela_rw"), Path("/tmp/euler_cluster_nedela")))
+        for mount in mounts:
+            candidate = mount / relative
+            if candidate.exists() or not strict:
+                return candidate.resolve(strict=strict)
     return path.resolve(strict=strict)
 
 
@@ -157,6 +166,114 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def _freeze_sources(config: Mapping[str, Any], root: Path) -> dict[str, Any]:
+    """Freeze the resolved run config, code archive, environment, and launcher."""
+    freeze = root / "freeze"
+    freeze.mkdir(parents=True, exist_ok=True)
+    public_config = {
+        str(key): value for key, value in config.items() if not str(key).startswith("_")
+    }
+    config_path = freeze / "resolved_config.yaml"
+    config_text = yaml.safe_dump(public_config, sort_keys=False)
+    if config_path.exists() and config_path.read_text() != config_text:
+        raise RuntimeError(f"refusing to overwrite changed resolved config: {config_path}")
+    if not config_path.exists():
+        config_path.write_text(config_text)
+
+    environment = {
+        "schema": "delimit3d_agile3d_environment/v1",
+        "repo_commit": effective_commit(config),
+        "hostname": platform.node(),
+        "platform": platform.platform(),
+        "python": sys.version,
+        "torch": torch.__version__,
+        "cuda_available": bool(torch.cuda.is_available()),
+        "cuda_version": torch.version.cuda,
+        "gpu_count": int(torch.cuda.device_count()) if torch.cuda.is_available() else 0,
+        "gpus": [
+            torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())
+        ] if torch.cuda.is_available() else [],
+        "upstream": dict(config.get("upstream", {})),
+    }
+    environment_path = freeze / "environment.json"
+    if environment_path.exists():
+        old_environment = json.loads(environment_path.read_text())
+        if old_environment != environment:
+            raise RuntimeError(f"refusing to overwrite changed environment report: {environment_path}")
+    else:
+        json_dump(environment_path, environment)
+
+    source_paths = [
+        REPO_ROOT / "scripts/evaluation/run_agile3d_multio.py",
+        REPO_ROOT / "src/delimit3d/evaluation/agile3d_decoder.py",
+        REPO_ROOT / "src/delimit3d/evaluation/agile3d_protocol.py",
+        REPO_ROOT / "src/delimit3d/models/litept_wrapper.py",
+        REPO_ROOT / "tests/test_agile3d_decoder.py",
+        REPO_ROOT / "tests/test_agile3d_protocol.py",
+        REPO_ROOT / "THIRD_PARTY_NOTICES.md",
+        config_path,
+    ]
+    source_entries = []
+    for source in source_paths:
+        source = source.resolve(strict=True)
+        source_entries.append(
+            {
+                "path": str(source),
+                "archive_path": str(source.relative_to(REPO_ROOT)) if source.is_relative_to(REPO_ROOT) else source.name,
+                "sha256": file_sha256(source),
+                "bytes": int(source.stat().st_size),
+            }
+        )
+    archive = freeze / f"source_archive_{effective_commit(config)[:12]}.tar.gz"
+    if not archive.exists():
+        with tarfile.open(archive, "w:gz") as handle:
+            for entry, source in zip(source_entries, source_paths, strict=True):
+                handle.add(source, arcname=entry["archive_path"], recursive=False)
+    else:
+        if archive.stat().st_size <= 0:
+            raise RuntimeError(f"empty source archive: {archive}")
+    source_manifest = {
+        "schema": "delimit3d_agile3d_source_manifest/v1",
+        "repo_commit": effective_commit(config),
+        "files": source_entries,
+        "archive": str(archive),
+        "archive_sha256": file_sha256(archive),
+        "upstream": dict(config.get("upstream", {})),
+    }
+    source_manifest_path = freeze / "source_manifest.json"
+    if source_manifest_path.exists():
+        old = json.loads(source_manifest_path.read_text())
+        if old != source_manifest:
+            raise RuntimeError(f"refusing to overwrite changed source manifest: {source_manifest_path}")
+    else:
+        json_dump(source_manifest_path, source_manifest)
+
+    launcher = freeze / "launcher.sh"
+    config_for_launcher = str(config_path)
+    launcher_text = f"""#!/bin/sh
+set -eu
+REPO_ROOT={str(REPO_ROOT)!r}
+PYTHON=${{PYTHON:-python3}}
+export PYTHONPATH="$REPO_ROOT/src${{PYTHONPATH:+:$PYTHONPATH}}"
+CONFIG={config_for_launcher!r}
+# Run one explicit mode at a time; train/evaluate require --arm.
+exec "$PYTHON" "$REPO_ROOT/scripts/evaluation/run_agile3d_multio.py" --config "$CONFIG" --mode "$@"
+"""
+    if launcher.exists() and launcher.read_text() != launcher_text:
+        raise RuntimeError(f"refusing to overwrite changed launcher: {launcher}")
+    if not launcher.exists():
+        launcher.write_text(launcher_text)
+        launcher.chmod(0o755)
+    return {
+        "resolved_config": str(config_path),
+        "environment": str(environment_path),
+        "source_manifest": str(source_manifest_path),
+        "source_archive": str(archive),
+        "source_archive_sha256": source_manifest["archive_sha256"],
+        "launcher": str(launcher),
+    }
 
 
 def decoder_kwargs(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -235,11 +352,28 @@ def verify_config(config: Mapping[str, Any]) -> None:
     for arm in ("public", "delimit3d"):
         if arm not in config["arms"]:
             raise ValueError(f"missing encoder arm {arm}")
+    gate = config.get("gate", {})
+    if str(gate.get("primary_panel", "MO-5")) != "MO-5":
+        raise ValueError("Stage-A primary panel is locked to MO-5")
+    if float(gate.get("min_iou_at_1_delta", 0.0)) != 0.02:
+        raise ValueError("min_iou_at_1_delta must be 0.02")
+    if float(gate.get("min_iou_at_5_delta", 0.0)) != 0.015:
+        raise ValueError("min_iou_at_5_delta must be 0.015")
+    if float(gate.get("max_noc_at_80_delta", 0.0)) != 0.0:
+        raise ValueError("max_noc_at_80_delta must be 0.0")
+    if str(config.get("optimizer", {}).get("gpu", "")) not in {"RTX 4090", "RTX4090"}:
+        raise ValueError("this protocol is locked to RTX 4090")
+    if int(config.get("optimizer", {}).get("gpu_count_per_arm", 0)) != 1:
+        raise ValueError("one GPU per arm is required")
 
 
 def output_root(config: Mapping[str, Any]) -> Path:
     override = os.environ.get("DELIMIT3D_OUTPUT_ROOT")
-    root = Path(override).expanduser() if override else Path(config["paths"]["output_root"]).expanduser()
+    root = (
+        Path(override).expanduser().resolve()
+        if override
+        else resolve_external(config["paths"]["output_root"], strict=False)
+    )
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -377,6 +511,7 @@ def _build_training_schedule(
 ) -> list[dict[str, Any]]:
     rng = np.random.default_rng(int(seed))
     schedule: list[dict[str, Any]] = []
+    rejected_total = 0
     # Load each compressed scene once. Reopening a 20--80 MB NPZ for every
     # update would dominate preparation and make the schedule non-reproducible
     # if the external filesystem changes while it is being generated.
@@ -409,6 +544,8 @@ def _build_training_schedule(
                 "rejected_draws": int(rejected),
             }
         )
+    # The count is retained in the schedule rows; this aggregate is useful for
+    # checking how often overlap rejection was needed during preparation.
     return schedule
 
 
@@ -500,6 +637,7 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
         updates=int(protocol["train_updates"]),
         seed=int(config["seed"]),
     )
+    freeze_report = _freeze_sources(config, root)
 
     init_path = root / "decoder_init.pt"
     if init_path.exists():
@@ -552,6 +690,7 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
         "decoder_initialization_path": str(init_path),
         "classes_sha256": json_sha256(classes),
         "class_mapping_sha256": json_sha256(mapping),
+        "freeze": freeze_report,
         "source_code": {
             "repo_root": str(REPO_ROOT),
             "git_commit": effective_commit(config),
@@ -579,6 +718,7 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
         "panel_skips": panel_skips,
         "train_updates": len(schedule),
         "decoder_initialization": init_report,
+        "freeze": freeze_report,
     }
     json_dump(root / "prepare_report.json", report)
     print(json.dumps(report, indent=2), flush=True)
@@ -1446,10 +1586,10 @@ def aggregate(config: Mapping[str, Any]) -> dict[str, Any]:
         delimit_noc = mo5["delimit3d"].get("noc@0.80")
         conditions = {
             "iou_at_1_delta_ge_2pp": bool(
-                b1 is not None and float(b1["observed_difference"]) >= 0.02
+                b1 is not None and float(b1["observed_difference"]) >= float(config["gate"]["min_iou_at_1_delta"])
             ),
             "iou_at_5_delta_ge_1_5pp": bool(
-                b5 is not None and float(b5["observed_difference"]) >= 0.015
+                b5 is not None and float(b5["observed_difference"]) >= float(config["gate"]["min_iou_at_5_delta"])
             ),
             "iou_at_1_ci_lower_gt_zero": bool(
                 b1 is not None and float(b1["ci95_lower"]) > 0.0
@@ -1460,7 +1600,7 @@ def aggregate(config: Mapping[str, Any]) -> dict[str, Any]:
             "noc_at_80_not_worse": bool(
                 public_noc is not None
                 and delimit_noc is not None
-                and delimit_noc <= public_noc
+                and delimit_noc - public_noc <= float(config["gate"]["max_noc_at_80_delta"])
             ),
         }
         gate = {
@@ -1627,6 +1767,7 @@ def smoke(config: Mapping[str, Any]) -> dict[str, Any]:
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
+    config["_config_path"] = str(args.config.expanduser().resolve())
     verify_config(config)
     if args.mode == "prepare":
         prepare(config)
