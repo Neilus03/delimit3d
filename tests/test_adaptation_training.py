@@ -67,6 +67,7 @@ from delimit3d.training.runner import (
     _load_logical_scene_group,
     _manual_objective_gradients,
     _native_token_pure_fixed_pack_cosine_gap,
+    _resolve_seed_contract,
     _semantic_config_sha256,
     _telemetry_auxiliary_budget,
     _summarize_hierarchy_records,
@@ -78,6 +79,30 @@ import delimit3d.training.runner as ddp_runner
 from delimit3d.cli.select_checkpoint import (
     main as select_checkpoint,
 )
+
+
+def test_seed_contract_separates_training_from_immutable_artifacts() -> None:
+    separated = SimpleNamespace(
+        seed=20260911,
+        initialization_seed=42,
+        fixed_eval_seed=42,
+    )
+    assert _resolve_seed_contract(separated) == (42, 42)
+
+    legacy = SimpleNamespace(
+        seed=42,
+        initialization_seed=None,
+        fixed_eval_seed=None,
+    )
+    assert _resolve_seed_contract(legacy) == (42, 42)
+
+    invalid = SimpleNamespace(
+        seed=20260911,
+        initialization_seed=-1,
+        fixed_eval_seed=42,
+    )
+    with pytest.raises(ValueError, match="non-negative"):
+        _resolve_seed_contract(invalid)
 
 
 def test_native_token_pure_fixed_pack_gap_fails_closed() -> None:

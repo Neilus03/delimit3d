@@ -540,7 +540,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=0.05)
     parser.add_argument("--warmup-epochs", type=int, default=17)
     parser.add_argument("--grad-clip-norm", type=float, default=1.0)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help=(
+            "Training/sampling seed. Fixed-evaluation and initialization seeds "
+            "default to this value unless explicitly separated below."
+        ),
+    )
+    parser.add_argument(
+        "--initialization-seed",
+        type=int,
+        default=None,
+        help=(
+            "Seed declared by the immutable initialization checkpoint. This "
+            "may differ from --seed for a controlled training-seed repeat."
+        ),
+    )
+    parser.add_argument(
+        "--fixed-eval-seed",
+        type=int,
+        default=None,
+        help=(
+            "Seed declared by the immutable fixed holdout pack. This may "
+            "differ from --seed for a controlled training-seed repeat."
+        ),
+    )
     parser.add_argument("--log-every", type=int, default=25)
     parser.add_argument(
         "--sampling-profile",
@@ -723,6 +749,29 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     return parser.parse_args()
+
+
+def _resolve_seed_contract(args: argparse.Namespace) -> tuple[int, int]:
+    """Resolve immutable-artifact seeds while preserving legacy defaults.
+
+    The training/sampling seed is intentionally kept in ``args.seed``.  A
+    controlled seed repeat can retain the exact initialization checkpoint and
+    fixed holdout pack by supplying their declared seeds separately.
+    """
+
+    initialization_seed = (
+        int(args.seed)
+        if args.initialization_seed is None
+        else int(args.initialization_seed)
+    )
+    fixed_eval_seed = (
+        int(args.seed)
+        if args.fixed_eval_seed is None
+        else int(args.fixed_eval_seed)
+    )
+    if initialization_seed < 0 or fixed_eval_seed < 0 or int(args.seed) < 0:
+        raise ValueError("Seeds must be non-negative")
+    return initialization_seed, fixed_eval_seed
 
 
 def _atomic_torch_save(payload: dict[str, Any], path: Path) -> None:
@@ -4158,6 +4207,13 @@ def _v2_frame_catalogs(
 
 def _run() -> None:
     args = parse_args()
+    # Keep the training/sampling seed independent from the immutable artifacts
+    # when a controlled seed repeat is requested.  Legacy invocations retain
+    # the previous behavior because both defaults fall back to --seed.
+    (
+        args.initialization_seed,
+        args.fixed_eval_seed,
+    ) = _resolve_seed_contract(args)
     if not dist.is_available():
         raise RuntimeError("torch.distributed is unavailable")
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -4890,7 +4946,7 @@ def _run() -> None:
                     scenes=holdout_scenes,
                     sampling=evaluation_sampling,
                     sampling_profile=evaluation_sampling_profile,
-                    seed=args.seed,
+                    seed=args.fixed_eval_seed,
                     cells=source_cells,
                 )
             dist.broadcast_object_list(report_broadcast, src=0)
@@ -4931,8 +4987,8 @@ def _run() -> None:
             multiscale_supervision=args.multiscale_supervision,
             v2_auxiliary_initialization=(sampling_mode == V2_SAMPLING_MODE),
         )
-        if initial_report["seed"] != int(args.seed):
-            raise ValueError("Initialization seed differs from run seed")
+        if initial_report["seed"] != int(args.initialization_seed):
+            raise ValueError("Initialization seed differs from --initialization-seed")
         if args.normalization_policy == "sync_batchnorm":
             model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
             model = model.to(device)
@@ -5001,6 +5057,8 @@ def _run() -> None:
             ),
             "world_size": world_size,
             "seed": int(args.seed),
+            "initialization_seed": int(args.initialization_seed),
+            "fixed_eval_seed": int(args.fixed_eval_seed),
             "epochs": epochs,
             "updates_per_epoch": (
                 scene_visits_per_epoch_per_rank
@@ -5476,6 +5534,8 @@ def _run() -> None:
                 "dataset",
                 "world_size",
                 "seed",
+                "initialization_seed",
+                "fixed_eval_seed",
                 "updates_per_epoch",
                 "scene_visits_per_epoch_per_rank",
                 "scenes_per_rank_per_update",
@@ -5997,7 +6057,7 @@ def _run() -> None:
                     scenes=holdout_scenes,
                     device=device,
                     sampling=evaluation_sampling,
-                    seed=args.seed,
+                    seed=args.fixed_eval_seed,
                     fixed_eval_pack=args.fixed_eval_pack,
                     fixed_eval_pack_report=fixed_eval_pack_report,
                     cells=source_cells,
@@ -7709,6 +7769,20 @@ def _run() -> None:
                     initial_report["sha256"]
                     == resolved["initialization"]["sha256"]
                 ),
+                "initialization_seed_exact": (
+                    initial_report["seed"] == int(args.initialization_seed)
+                    and resolved["initialization_seed"]
+                    == int(args.initialization_seed)
+                ),
+                "fixed_eval_seed_exact": (
+                    fixed_eval_pack_report is None
+                    or (
+                        int(fixed_eval_pack_report.get("seed", -1))
+                        == int(args.fixed_eval_seed)
+                        and resolved["fixed_eval_seed"]
+                        == int(args.fixed_eval_seed)
+                    )
+                ),
                 "source_cells_exact": set(global_counts) == set(source_cells),
                 "scene_voxelization_cache_disabled": (
                     resolved["cache_training_voxelization"] is False
@@ -8048,6 +8122,9 @@ def _run() -> None:
                 ),
                 "epochs": epochs,
                 "updates": total_updates,
+                "seed": int(args.seed),
+                "initialization_seed": int(args.initialization_seed),
+                "fixed_eval_seed": int(args.fixed_eval_seed),
                 "scene_visits_per_epoch_per_rank": (
                     scene_visits_per_epoch_per_rank
                 ),

@@ -46,7 +46,7 @@ minutes of source preload through the current Euler mount. The matched decoder
 should take about 10 minutes, followed by a short copy to Euler. The end-to-end
 estimate is therefore about 1.5–2 hours, with no 2080 Ti allocation.
 
-**Launch record.** The corrected run started on `pf-pc69.ethz.ch` at
+**Launch record.** The first corrected launch started on `pf-pc69.ethz.ch` at
 2026-09-11 00:17:10 CEST with launcher PID `4086876` and two DDP workers on
 two RTX 4090 GPUs. The adaptation log is
 `/home/nedela/delimit3d_runs/logs/adaptation_256_seed20260911_native_20260911.log`.
@@ -58,10 +58,23 @@ corrected launcher script SHA-256 is
 Two earlier attempts exited before model construction: one used an invalid
 epoch CLI value and the other encountered the runner's refusal to overwrite an
 empty output directory. Their logs are retained as infrastructure provenance;
-neither produced a checkpoint or scientific metric. A detached post-run chain
-(`postprocess PID 4087567`) is waiting on the adaptation and will train the
-matched decoder, aggregate against the copied public arm, and copy the complete
-bundle to Euler only after a valid 256-update checkpoint exists.
+neither produced a checkpoint or scientific metric. The detached post-run chain
+(`postprocess PID 4087567`) correctly refused to evaluate after the adaptation
+failed.
 
-**Status.** Running. The result and exact hashes will be appended to this file
-when the run finishes.
+At 01:10:01 CEST the adaptation reached the fixed-pack validation and exited
+before model construction with `Fixed-eval seed drift`: the runner coupled the
+training seed to the immutable pack seed. No checkpoint or scientific metric
+was produced. The `pf-pc69` SSH service then became unreachable, so the planned
+relaunch is pending host recovery.
+
+The repository now contains a focused seed-contract fix: `--seed` remains the
+training/sampling seed, while `--initialization-seed` and `--fixed-eval-seed`
+allow a controlled repeat to retain the exact seed-42 initialization and fixed
+evaluation pack. The fix also records both artifact seeds in the resolved
+configuration and adds a unit test. It will be copied to the execution host,
+compiled, and smoke-tested before relaunch; the scientific success gate is
+unchanged.
+
+**Status.** Relaunch pending host recovery and the seed-contract preflight. The
+result and exact hashes will be appended to this file when the run finishes.
