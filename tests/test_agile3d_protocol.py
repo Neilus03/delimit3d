@@ -72,6 +72,28 @@ def test_simulator_appends_signed_clicks() -> None:
     assert sum(len(value) for value in clicks.values()) == 2
 
 
+def test_evaluation_click_budget_caps_foreground_labels() -> None:
+    xyz = np.asarray(
+        [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.2, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        dtype=np.float64,
+    )
+    target = np.asarray([1, 1, 0, 0], dtype=np.int64)
+    prediction = np.asarray([0, 0, 0, 0], dtype=np.int64)
+    clicks = {"0": [], "1": [0]}
+    times = {"0": [], "1": [0]}
+    new, _times, events = simulated_corrections(
+        prediction,
+        target,
+        xyz,
+        clicks,
+        times,
+        training=False,
+        max_clicks_per_label=1,
+    )
+    assert new == {}
+    assert events == []
+
+
 def test_raw_iou_and_bootstrap() -> None:
     prediction = np.asarray([0, 1, 1, 0], dtype=np.int64)
     target = np.asarray([0, 1, 0, 0], dtype=np.int64)

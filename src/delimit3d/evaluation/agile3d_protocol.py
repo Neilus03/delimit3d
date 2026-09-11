@@ -399,13 +399,33 @@ def simulated_corrections(
     *,
     training: bool,
     click_center_method: str = "kdtree",
+    max_clicks_per_label: int | None = None,
 ) -> tuple[dict[str, list[int]], dict[str, list[int]], list[dict[str, Any]]]:
-    """Select and return the next AGILE3D correction clicks."""
+    """Select and return the next AGILE3D correction clicks.
+
+    ``max_clicks_per_label`` is used by the evaluation protocol to enforce the
+    declared per-object click budget.  Background corrections remain eligible
+    because the budget is defined per requested foreground object.
+    """
     candidates = _cluster_click_candidates(
         prediction, target, xyz, method=click_center_method
     )
     if not candidates:
         return {}, {}, []
+    if max_clicks_per_label is not None:
+        if int(max_clicks_per_label) <= 0:
+            raise ValueError("max_clicks_per_label must be positive when provided")
+        available: list[dict[str, Any]] = []
+        for candidate in candidates:
+            label = int(candidate["target_label"])
+            if label > 0:
+                existing = clicks.get(str(label), clicks.get(label, []))
+                if len(existing) >= int(max_clicks_per_label):
+                    continue
+            available.append(candidate)
+        candidates = available
+        if not candidates:
+            return {}, {}, []
     object_count = len([key for key in clicks if int(key) > 0])
     selected = candidates[:object_count if training else 1]
     total_events = sum(len(values) for values in clicks.values())

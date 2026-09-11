@@ -1427,6 +1427,7 @@ def _evaluate_episode(
                 times,
                 training=False,
                 click_center_method=str(config["protocol"]["click_center_method"]),
+                max_clicks_per_label=int(config["protocol"]["click_budget"]),
             )
             if not new_clicks:
                 break
