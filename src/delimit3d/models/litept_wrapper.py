@@ -88,6 +88,7 @@ class LitePTBackboneOutput:
     scene_tokens: torch.Tensor  # [V, C] sparse voxel features (finest scale)
     scene_xyz: torch.Tensor     # [V, 3] voxel centroids (finest scale)
     inverse_map: torch.Tensor   # [N]    maps points → voxel token index
+    representative_indices: torch.Tensor  # [V] source-point index used for each token
     point_offsets: torch.Tensor = field(default_factory=lambda: torch.zeros(0, dtype=torch.long))
     scene_token_offsets: torch.Tensor = field(default_factory=lambda: torch.zeros(0, dtype=torch.long))
 
@@ -880,7 +881,7 @@ class LitePTBackbone(nn.Module):
         hierarchy_grids: tuple[torch.Tensor, ...] = ()
         hierarchy_offsets: tuple[torch.Tensor, ...] = ()
         hierarchy_parent_maps: tuple[torch.Tensor, ...] = ()
-        if self.capture_hierarchy:
+        if getattr(self, "capture_hierarchy", False):
             hierarchy_stage_names = ("enc4", "dec3", "dec2", "dec1", "dec0")
             missing = [
                 name
@@ -967,6 +968,7 @@ class LitePTBackbone(nn.Module):
             scene_tokens=scene_tokens,
             scene_xyz=scene_xyz,
             inverse_map=inverse,
+            representative_indices=representative_indices,
             point_offsets=point_offsets_t,
             scene_token_offsets=scene_token_offsets,
             multi_scale_tokens=ms_tokens,

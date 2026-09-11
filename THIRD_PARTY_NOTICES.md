@@ -23,3 +23,16 @@ runtime or are represented by adapters in this repository:
 Before public release, review every copied file and add the exact upstream
 license text required by LitePT, UnSAMv2/SAM2, and any future decoder/evaluator
 implementation.
+
+
+- **AGILE3D-compatible multi-object decoder and click protocol**: the
+  Delimit3D interactive evaluator adapts the query decoder, positional/click
+  encoding, auxiliary-loss structure, and simulated-correction policy from
+  AGILE3D at revision
+  b73638da41edbabe52a1b578d52ddeb8fa552173.
+  Upstream repository: https://github.com/ywyue/AGILE3D
+  Upstream license: MIT (copyright Yuanwen Yue and ETH Zurich). The
+  adaptation is implemented natively in PyTorch because MinkowskiEngine is
+  not part of the Delimit3D runtime; LitePT provides the frozen token
+  interface.
+

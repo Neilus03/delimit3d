@@ -1,0 +1,84 @@
+# Frozen Delimit3D AGILE3D-compatible ScanNet++ multi-object experiment.
+# Generated caches/checkpoints/logs stay under output_root and are never committed.
+experiment_id: delimit3d_scannetpp_agile3d_mo_v1
+repo_commit: auto
+seed: 20260911
+
+paths:
+  scannetpp_root: /cluster/work/igp_psr/nedela/scannetpp_data
+  train_pack_root: /cluster/work/igp_psr/nedela/partfield_gt_hierarchy_scannetpp_full_mesh_vertex_prop_rgbn6
+  train_split: /cluster/work/igp_psr/nedela/scannetpp_data/splits/nvs_sem_train.txt
+  val_bundle: /cluster/work/igp_psr/nedela/chorus_scannetpp_prompt_20260910_r1
+  litept_root: /cluster/work/igp_psr/nedela/LitePT
+  output_root: /cluster/work/igp_psr/nedela/delimit3d_scannetpp_agile3d_mo_v1
+
+protocol:
+  train_scene_count: 50
+  minimum_instance_points: 100
+  maximum_objects_per_scene: 16
+  train_updates: 5000
+  click_budget: 20
+  click_center_method: kdtree
+  panels:
+    - MO-1
+    - MO-5
+    - MO-10
+  clicked_point_included: true
+  active_litept_level: dec0
+  voxel_size_m: 0.02
+  voxel_reduce: representative
+  representative_sampling: first
+  rgbn6_contract: RGB followed by unit normals; center XY and ground Z
+
+decoder:
+  init_seed: 20260911
+  feature_dim: 72
+  hidden_dim: 128
+  num_heads: 8
+  dim_feedforward: 1024
+  num_decoders: 3
+  num_bg_queries: 10
+  dropout: 0.0
+  pre_norm: false
+  max_click_events: 200
+  normalize_pos_enc: true
+  gauss_scale: 1.0
+  aux: true
+
+optimizer:
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  clip_norm: 0.1
+  batch_size: 1
+  gpu: RTX 4090
+  gpu_count_per_arm: 1
+  cpus_per_process: 8
+  host_ram_gib: 64
+
+loss:
+  bce_weight: 1.0
+  dice_weight: 2.0
+  alpha: 0.8
+  beta: 2.0
+  radius: 0.3
+
+bootstrap:
+  samples: 10000
+  seed: 20260911
+
+upstream:
+  name: AGILE3D
+  repository: https://github.com/ywyue/AGILE3D
+  revision: b73638da41edbabe52a1b578d52ddeb8fa552173
+  license: MIT
+
+
+
+arms:
+  public:
+    checkpoint: /cluster/work/igp_psr/nedela/public_rgbn6_frozen_pg_20260907_r1/assets/public_checkpoint.pth
+    checkpoint_sha256: 86408c6371555aeee2a8eda1184b55a411f9748784c275349149b509b661d518
+  delimit3d:
+    checkpoint: /cluster/work/igp_psr/nedela/public_rgbn6_frozen_pg_20260907_r1/results/posttraining_256_r4/checkpoints/audit_e0001_u00000256.pt
+    checkpoint_sha256: 4717369861cff81fe784efda8cd8a7653de46d35635730f10c893da563050282
+
