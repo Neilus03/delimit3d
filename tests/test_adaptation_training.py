@@ -56,6 +56,7 @@ from delimit3d.data.contrastive_sampler_v2 import (
 )
 from delimit3d.losses.partfield_contrastive_loss import PartFieldContrastiveCriterion
 from delimit3d.training.runner import (
+    BACKBONE_LR_CHOICES,
     DEFAULT_EVAL_EPOCHS,
     _add_flat_objective_gradients,
     _add_manual_gradients,
@@ -103,6 +104,12 @@ def test_seed_contract_separates_training_from_immutable_artifacts() -> None:
     )
     with pytest.raises(ValueError, match="non-negative"):
         _resolve_seed_contract(invalid)
+
+
+def test_public_posttraining_backbone_lr_is_an_explicit_runner_choice() -> None:
+    assert 1e-4 in BACKBONE_LR_CHOICES
+    assert 3e-4 in BACKBONE_LR_CHOICES
+    assert 1e-3 in BACKBONE_LR_CHOICES
 
 
 def test_native_token_pure_fixed_pack_gap_fails_closed() -> None:

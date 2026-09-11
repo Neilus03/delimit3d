@@ -6,7 +6,9 @@ source_family: 2d
 input_features: rgbn6
 source_cells: [2d/g02, 2d/g05, 2d/g08]
 updates: 256
-backbone_lr: 0.001
+# Public-LitePT posttraining parity.  The V2 scratch/adaptation rate is
+# 0.001; use 0.0001 when starting from public_initial.pt.
+backbone_lr: 0.0001
 head_lr: 0.003
 sampling_mode: coverage_multigranular_v2
 normalization: sync_batchnorm

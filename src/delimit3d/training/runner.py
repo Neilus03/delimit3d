@@ -119,6 +119,10 @@ HIERARCHY_SUPERVISION_MODES = (
     "query_mask_vicreg",
 )
 NORMALIZATION_POLICIES = ("batchnorm", "sync_batchnorm")
+# Keep the public-LitePT posttraining LR available alongside the newer V2
+# scratch/adaptation rates.  The value is part of the immutable run contract,
+# so it must be accepted by the CLI before any GPU work begins.
+BACKBONE_LR_CHOICES = (1e-4, 3e-4, 1e-3)
 COORDINATE_NORMALIZATION_POLICIES = (
     "native",
     STRUCTURED3D_COORDINATE_NORMALIZATION_POLICY,
@@ -370,7 +374,12 @@ def parse_args() -> argparse.Namespace:
         choices=(3, 18, 34, 36, 84, 168, 252, 336, 1008),
         required=True,
     )
-    parser.add_argument("--backbone-lr", type=float, choices=(3e-4, 1e-3), required=True)
+    parser.add_argument(
+        "--backbone-lr",
+        type=float,
+        choices=BACKBONE_LR_CHOICES,
+        required=True,
+    )
     parser.add_argument("--head-lr", type=float, default=3e-3)
     parser.add_argument(
         "--representative-sampling",
