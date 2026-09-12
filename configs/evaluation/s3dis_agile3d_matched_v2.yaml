@@ -1,0 +1,76 @@
+experiment_id: delimit3d_s3dis_agile3d_matched_v2
+dataset: S3DIS
+repo_commit: auto
+seed: 20260912
+paths:
+  official_root: /cluster/work/igp_psr/nedela/agile3d_data/S3DIS
+  official_data_audit: /cluster/work/igp_psr/nedela/delimit3d_s3dis_agile3d_matched_v1/lead_audit/official_data_audit_v1.json
+  normal_root: /cluster/work/igp_psr/nedela/delimit3d_s3dis_agile3d_matched_v1/normals
+  normal_report: /cluster/work/igp_psr/nedela/delimit3d_s3dis_agile3d_matched_v1/lead_audit/normal_generation_S3DIS_all.json
+  litept_root: /cluster/work/igp_psr/nedela/LitePT
+  output_root: /cluster/work/igp_psr/nedela/delimit3d_s3dis_agile3d_matched_v2
+protocol:
+  active_litept_level: dec0
+  voxel_size_m: 0.02
+  voxel_reduce: representative
+  representative_sampling: first
+  representative_coverage_policy: official_requested_objects_only_v1
+  representative_preflight_arithmetic: pytorch_2.4.1_cuda_float32_scalar_reciprocal
+  click_budget: 20
+  click_center_method: kdtree
+  clicked_point_included: true
+  single_object_label_offset: 1
+  normal_policy: open3d_knn_pca_centroid_orient_v1
+  rgbn6_contract: RGB followed by unit synthesized normals; center XY and ground Z
+  visual_episode_count: 3
+  visual_max_points: 12000
+  mesh_max_points: 8000
+decoder:
+  init_seed: 20260912
+  feature_dim: 72
+  hidden_dim: 128
+  num_heads: 8
+  dim_feedforward: 1024
+  num_decoders: 3
+  num_bg_queries: 10
+  dropout: 0.0
+  pre_norm: false
+  max_click_events: 200
+  normalize_pos_enc: true
+  gauss_scale: 1.0
+  aux: true
+bootstrap:
+  samples: 10000
+  seed: 20260912
+training:
+  experiment_id: delimit3d_scannet40_agile3d_matched_v1
+  updates: 5000
+  repo_commit: 4a1888213f0507eae86b51d16df76b7d8809ba7b
+  source_root: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1
+  episode_schedule_sha256: 836c9afcb5e0ab3a1667f5631d06f22819a6f9e5c212f2272800d1ca8d984126
+  decoder_initialization_path: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1/decoder_init.pt
+  decoder_initialization_tensor_sha256: 8dbc462b78b9e5d1e3450b7dcff1a7d33af86f31935a1444e9cf7ecbfb4da86a
+arms:
+  public:
+    checkpoint: /cluster/work/igp_psr/nedela/public_rgbn6_frozen_pg_20260907_r1/assets/public_checkpoint.pth
+    checkpoint_sha256: 86408c6371555aeee2a8eda1184b55a411f9748784c275349149b509b661d518
+    encoder_tensor_sha256: 514603ae4f715f3010a2b8cdff452e644159408b3781aae9cd7b5e1e7b82a4fd
+    decoder_checkpoint: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1/public/decoder_u05000.pt
+    decoder_checkpoint_sha256: 1df387f627659f12eeff73e72b7770b30adf5ea5865bfea0e0e7aba42a51539c
+  delimit3d:
+    checkpoint: /cluster/work/igp_psr/nedela/public_rgbn6_frozen_pg_20260907_r1/results/posttraining_256_r4/checkpoints/audit_e0001_u00000256.pt
+    checkpoint_sha256: 4717369861cff81fe784efda8cd8a7653de46d35635730f10c893da563050282
+    encoder_tensor_sha256: ea2001e33ea9638b9f402ab0a977e13e8f08acc0e795083cb17ccbda330c9585
+    decoder_checkpoint: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1/delimit3d/decoder_u05000.pt
+    decoder_checkpoint_sha256: 27ce7f8bc748c92620d4239b9491b65b8c894747dbe53de13c4efb536bab10a6
+ground_truth_authority: official_AGILE3D_PLY_label
+official_manifest_sha256:
+  val: e474f33a94254521061afde51a4e52a41eefd48fe959e593f89593bfc914a309
+  so_ids: f42b8957146e15f25691a293b2c94fe61c81b15e980581ef696433e74ef21b60
+  so_classes: edbe268c133bf2fb8a26b5ee1ebef0b55bd91ad9551ae883ea1a6b9eb5671da9
+upstream:
+  name: AGILE3D
+  repository: https://github.com/ywyue/AGILE3D
+  revision: b73638da41edbabe52a1b578d52ddeb8fa552173
+metric_scope: matched LitePT comparison under AGILE3D metric protocol; not literal AGILE3D model reproduction
+encoder_adaptation_uses_s3dis_labels: false
