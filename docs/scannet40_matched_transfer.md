@@ -44,3 +44,13 @@ The explicit `launch_scannet40_matched.py --config <full frozen resolved YAML>` 
 Gate thresholds: MO-5 IoU@1 delta>=0.02; IoU@5 delta>=0.015; both paired95% scene-bootstrap lower bounds>0; NoC@80 delta<=0. A pending, failed or mixed final Stage-A gate withholds the full run. Training-loss differences never substitute for this downstream decision. The full launch must wait for a final throughput/cost estimate from the real smoke and the lead's documented decision.
 
 The full audit exposed a label-namespace discrepancy in scene0217_00: its raw aggregation repeats31 segment groups as a second set of IDs. Official PLY retains the first IDs, while processed arrays carry the later IDs. Both represent the same partitions and exact point geometry. The resolution is preserved in `protocol_audit/scene0217_00_resolution.json` (SHA256 b716bb611a3ab6ead432834620cac408b6b9c99f4eacf78ba69e517bcf834eae). This is why official PLY IDs remain authoritative and processed-label agreement is a diagnostic. No data are changed or official targets excluded.
+
+## Real GPU smoke correction
+
+The first real RTX4090 smoke (job13911781, preserved smoke_v1 root and commit d9cf9d2) stopped before decoder training because scene0568_00 had 160980 native CUDA representatives versus 160981 predicted by direct CPU division. Four coordinates crossed floor boundaries because PyTorch2.4.1 CUDA division by a CPU scalar multiplies by its float32 reciprocal. This behavior is documented in the pinned upstream BinaryDivTrueKernel.cu, lines32-45.
+
+The new CPU preflight reproduces that existing native arithmetic. On both real smoke scenes, its full representative arrays and inverse maps exactly match the saved GPU outputs. LitePT's GPU wrapper, voxel size, centering, representative-first policy, RGB/normal features and encoder policy are unchanged. The old full data audit remains intact; production preparation recomputes representative survival with the corrected CPU preflight, and actual cross-arm GPU geometry is still checked before training.
+
+The next smoke uses configs/evaluation/scannet40_agile3d_smoke_v2.yaml and the separate smoke_v2 artifact root. The failed first attempt is retained. Its failure is an implementation check, not a downstream scientific result. Exact evidence, boundary coordinates, source URL/hash and cache hashes are under lead_audit/geometry_smoke_failure.
+
+Smoke v2 runs its phases in one Python process to avoid repeated shared-environment startup costs observed in the first attempt. It retains per-phase GPU verification, PID and heartbeat files, measured timings, peak CUDA allocation and final completion provenance. It remains a two-update smoke and explicitly rejects production configurations.

@@ -14,6 +14,26 @@ THRESHOLDS = (50, 65, 80, 85, 90)
 EXPERIMENT = "delimit3d_scannet40_agile3d_matched_v1"
 
 
+
+def native_cuda_representative_indices(points, *, voxel_size=0.02):
+    """Predict existing LitePT CUDA scalar-division rounding on the CPU.
+
+    PyTorch 2.4.1 BinaryDivTrueKernel.cu lines 32-45 computes float32
+    tensor / CPU scalar as tensor * float32(1 / scalar). Direct NumPy
+    or CPU Torch division can cross a floor boundary by one rounding bit.
+    This preflight helper does not change LitePT's GPU voxelization.
+    """
+    values = np.asarray(points, dtype=np.float32)
+    if values.ndim != 2 or values.shape[1] != 3 or not np.isfinite(values).all():
+        raise ValueError("finite Nx3 coordinates required")
+    size = np.float32(voxel_size)
+    if not np.isfinite(size) or size <= 0:
+        raise ValueError("positive finite voxel size required")
+    reciprocal = np.float32(1.0) / size
+    grid = np.floor(values * reciprocal).astype(np.int64)
+    _, representatives = np.unique(grid, axis=0, return_index=True)
+    return representatives.astype(np.int64, copy=False)
+
 def read_official_list(path):
     data = json.loads(Path(path).read_text())
     scenes = [key.rsplit("_obj_", 1)[0] for key in data]

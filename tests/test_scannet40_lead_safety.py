@@ -377,3 +377,10 @@ def test_resume_optimizer_recipe_cannot_override_frozen_yaml(runner, resume_harn
     with pytest.raises(ValueError):
         runner.train(resume_harness["config"], "public", resume=resume_harness["checkpoint"])
 
+
+def test_bounded_smoke_pipeline_rejects_production_before_gpu(runner, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("production config reached GPU preflight")
+    monkeypatch.setattr(runner, "gpu_preflight", forbidden)
+    with pytest.raises(ValueError, match="rejects production"):
+        runner.smoke_pipeline({"smoke_only": False})

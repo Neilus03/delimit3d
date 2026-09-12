@@ -29,6 +29,9 @@ from delimit3d.evaluation import scannet40_protocol as protocol
 from delimit3d.evaluation.agile3d_protocol import file_sha256, json_sha256, build_token_targets, representative_indices_for_points, scene_seed, simulated_corrections, append_clicks, enforce_click_labels, raw_object_ious
 from delimit3d.evaluation.agile3d_decoder import load_initialization, save_initialization, state_sha256
 
+# CPU prediction of unchanged native CUDA scalar-division rounding.
+representative_indices_for_points = protocol.native_cuda_representative_indices
+
 SCHEMA = "delimit3d_scannet40_matched/v1"
 REPO = Path(__file__).resolve().parents[2]
 
@@ -244,6 +247,7 @@ def prepare(config):
             record["all_official_objects_have_representative_tokens"]=True
             record["representative_indices_sha256"]=core.array_sha256(reps)
             record["representative_token_count"]=len(reps)
+            record["representative_preflight_arithmetic"]="pytorch_2.4.1_cuda_float32_scalar_reciprocal"
             records[split].append(record)
     if set(selected["train"]) & set(selected["val"]):
         raise ValueError("train/validation overlap")
@@ -542,6 +546,51 @@ def plot_results(config,result):
         fig.tight_layout();fig.savefig(out/f"{scene}_interactive.png",dpi=180);plt.close(fig)
 
 
+
+def smoke_pipeline(config):
+    """Run the bounded smoke in one process, retaining per-phase evidence."""
+    if not config.get("smoke_only"):
+        raise ValueError("smoke pipeline rejects production config")
+    import gc
+    root = root_of(config)
+    phases = [
+        ("cache-features", "public", None), ("cache-features", "delimit3d", None),
+        ("smoke", None, None), ("train", "public", None), ("train", "delimit3d", None),
+        ("evaluate", "public", "MO"), ("evaluate", "public", "SO"),
+        ("evaluate", "delimit3d", "MO"), ("evaluate", "delimit3d", "SO"),
+        ("aggregate", None, None),
+    ]
+    timings = []
+    for phase, arm, panel in phases:
+        verify_freeze(config)
+        name = f"{phase}_{arm or 'both'}_{panel or 'both'}"
+        print(json.dumps({"smoke_phase": name, "pid": os.getpid()}), flush=True)
+        if phase != "aggregate":
+            environment = gpu_preflight(config)
+            dump(root / "workers" / f"environment_{name}_{os.getpid()}.json", environment)
+            torch.cuda.reset_peak_memory_stats()
+        start = time.time()
+        with worker_files(config, name):
+            if phase == "cache-features": cache_features(config, arm)
+            elif phase == "smoke": verify_caches(config); core.smoke(config)
+            elif phase == "train": train(config, arm)
+            elif phase == "evaluate": evaluate(config, arm, panel)
+            elif phase == "aggregate": aggregate(config)
+        timings.append({"phase": name, "seconds": time.time()-start,
+                        "peak_cuda_allocated_bytes": torch.cuda.max_memory_allocated() if phase != "aggregate" else 0})
+        dump(root / "smoke_phase_timings.json", timings)
+        gc.collect()
+        torch.cuda.empty_cache()
+    provenance = verify_freeze(config)
+    dump(root / "smoke_pipeline_complete.json", {
+        "completed": True, "time": time.time(), "host": platform.node(),
+        "source_commit": provenance["repo_commit"],
+        "provenance_sha256": file_sha256(root / "freeze/provenance.json"),
+        "smoke_report_sha256": file_sha256(root / "smoke_report.json"),
+        "aggregate_sha256": file_sha256(root / "aggregate.json"),
+        "phase_timings_sha256": file_sha256(root / "smoke_phase_timings.json"),
+    })
+
 def gpu_preflight(config):
     inventory=subprocess.check_output(["nvidia-smi","--query-gpu=index,name,memory.total","--format=csv,noheader"],text=True)
     print(inventory,flush=True)
@@ -569,19 +618,21 @@ def worker_files(config,name):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument("--config",type=Path,required=True)
-    parser.add_argument("--mode",required=True,choices=("freeze","prepare","cache-features","smoke","train","evaluate","aggregate","preflight"))
+    parser.add_argument("--mode",required=True,choices=("freeze","prepare","cache-features","smoke","train","evaluate","aggregate","preflight","smoke-pipeline"))
     parser.add_argument("--arm",choices=("public","delimit3d"));parser.add_argument("--panel",choices=("MO","SO"),default="MO");parser.add_argument("--checkpoint");parser.add_argument("--resume")
     args=parser.parse_args();config=yaml.safe_load(args.config.read_text());verify_config(config);install_adapter()
     if args.mode=="freeze":freeze(config);return
     if args.mode=="prepare":prepare(config);return
     verify_freeze(config)
-    if args.mode in ("train","cache-features","smoke","evaluate"):
+    if args.mode=="smoke-pipeline" and not config.get("smoke_only"):raise ValueError("smoke pipeline rejects production config")
+    if args.mode in ("train","cache-features","smoke","evaluate","smoke-pipeline"):
         if not config.get("smoke_only"):
             from launch_scannet40_matched import gate
             gate(config)
         environment=gpu_preflight(config);dump(root_of(config)/"workers"/f"environment_{args.mode}_{args.arm or 'both'}_{os.getpid()}.json",environment)
     with worker_files(config,f"{args.mode}_{args.arm or 'both'}_{args.panel}"):
-        if args.mode=="cache-features":cache_features(config,args.arm)
+        if args.mode=="smoke-pipeline":smoke_pipeline(config)
+        elif args.mode=="cache-features":cache_features(config,args.arm)
         elif args.mode=="smoke":verify_caches(config);core.smoke(config)
         elif args.mode=="train":train(config,args.arm,args.resume)
         elif args.mode=="evaluate":evaluate(config,args.arm,args.panel,args.checkpoint)

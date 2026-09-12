@@ -88,3 +88,26 @@ def test_official_ply_ids_preserved_when_processed_ids_are_offset(tmp_path):
     assert [o["instance"] for o in p.objects_from_official_labels(vertices["label"],scene)]==[1,23]
     _,_,_,_,masks=p.load_scene(record)
     np.testing.assert_array_equal(masks[23],[2])
+
+def test_native_cuda_preflight_preserves_observed_boundary_rounding():
+    # Four exact coordinates from real RTX4090 job 13911781, scene0568_00.
+    points = np.array([
+        [0, 0, 1.3399999141693115], [0, 0, 1.33],
+        [-2.6000001430511475, 0, 0], [-2.59, 0, 0],
+        [0, 3.1999998092651367, 0], [0, 3.19, 0],
+        [3.43999981880188, 0, 0], [3.43, 0, 0],
+    ], dtype=np.float32)
+    from delimit3d.evaluation.scannet40_protocol import native_cuda_representative_indices
+    # Native CUDA merges each pair and keeps the first point in each voxel.
+    assert native_cuda_representative_indices(points).tolist() == [2, 0, 4, 6]
+    divided = np.floor(points / np.float32(.02)).astype(np.int64)
+    assert len(np.unique(divided, axis=0)) == 8
+
+
+def test_native_cuda_preflight_rejects_nonfinite_geometry():
+    from delimit3d.evaluation.scannet40_protocol import native_cuda_representative_indices
+    import pytest
+    with pytest.raises(ValueError, match="finite Nx3"):
+        native_cuda_representative_indices([[float("nan"), 0, 0]])
+    with pytest.raises(ValueError, match="positive finite"):
+        native_cuda_representative_indices([[0, 0, 0]], voxel_size=0)
