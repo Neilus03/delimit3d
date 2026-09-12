@@ -165,6 +165,41 @@ def official_paths(config: Mapping[str, Any]) -> dict[str, Path]:
     }
 
 
+def verify_normal_generation_report(
+    config: Mapping[str, Any], report_path: Path
+) -> dict[str, Any]:
+    """Validate the frozen RGBN6 sidecar report against the official lists."""
+    if not report_path.is_file():
+        raise FileNotFoundError(f"normal generation report missing: {report_path}")
+    report = json.loads(report_path.read_text())
+    if report.get("schema") != "delimit3d_cross_dataset_normals/v1":
+        raise ValueError("normal generation report schema mismatch")
+    if str(report.get("dataset")) != str(config["dataset"]):
+        raise ValueError("normal generation report dataset mismatch")
+    if str(report.get("scope")) != "all":
+        raise ValueError("normal generation must cover both scenes and crops")
+    if str(report.get("method")) != "open3d_estimate_normals_knn_pca_centroid_orient":
+        raise ValueError("normal generation method drift")
+    if int(report.get("knn", -1)) != 30:
+        raise ValueError("normal generation KNN drift")
+    paths = official_paths(config)
+    expected = {
+        "val_list.json": paths["val"],
+        "single/object_ids.npy": paths["so_ids"],
+        "single/object_classes.txt": paths["so_classes"],
+    }
+    observed = report.get("source_list_hashes")
+    if not isinstance(observed, Mapping):
+        raise ValueError("normal generation report lacks source_list_hashes")
+    for name, official_path in expected.items():
+        if observed.get(name) != file_sha256(official_path):
+            raise ValueError(f"normal generation source-list hash drift: {name}")
+    entries = report.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("normal generation report has no entries")
+    return report
+
+
 def read_ply(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     from plyfile import PlyData
 
@@ -373,8 +408,10 @@ def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"commit the follow-up worktree before freezing: {dirty}")
     paths = official_paths(config)
     normal_report = resolve(config["paths"]["normal_report"])
-    if not normal_report.exists():
-        raise FileNotFoundError(f"normal generation report missing: {normal_report}")
+    normal_payload = verify_normal_generation_report(config, normal_report)
+    audit_path = resolve(config["paths"]["official_data_audit"])
+    if not audit_path.is_file():
+        raise FileNotFoundError(f"official data audit missing: {audit_path}")
     out = root / "freeze"
     out.mkdir(parents=True, exist_ok=True)
     config = dict(config)
@@ -408,6 +445,12 @@ def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
         if not target.exists():
             target.write_bytes(path.read_bytes())
         lists[name] = {"path": str(path), "frozen_path": str(target), "sha256": observed}
+    audit_target = frozen_lists / "official_data_audit_v1.json"
+    audit_sha256 = file_sha256(audit_path)
+    if audit_target.exists() and file_sha256(audit_target) != audit_sha256:
+        raise RuntimeError(f"frozen official data audit drift: {audit_target}")
+    if not audit_target.exists():
+        audit_target.write_bytes(audit_path.read_bytes())
     checkpoints = {}
     for arm, arm_cfg in config["arms"].items():
         for key in ("checkpoint", "decoder_checkpoint"):
@@ -440,7 +483,18 @@ def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
             "sha256": file_sha256(init_target),
             "tensor_state_sha256": config["training"]["decoder_initialization_tensor_sha256"],
         },
-        "normal_generation_report": {"path": str(normal_report), "sha256": file_sha256(normal_report)},
+        "normal_generation_report": {
+            "path": str(normal_report),
+            "sha256": file_sha256(normal_report),
+            "method": normal_payload["method"],
+            "knn": int(normal_payload["knn"]),
+            "entry_count": len(normal_payload["entries"]),
+        },
+        "official_data_audit": {
+            "path": str(audit_path),
+            "frozen_path": str(audit_target),
+            "sha256": audit_sha256,
+        },
         "official_lists": lists,
         "checkpoints": checkpoints,
         "environment": str(out / "environment_cpu.json"),
@@ -468,8 +522,28 @@ def load_provenance(config: Mapping[str, Any]) -> dict[str, Any]:
         if file_sha256(resolve(entry["frozen_path"])) != entry["sha256"]:
             raise ValueError(f"frozen official list drift: {name}")
     normal_report = report["normal_generation_report"]
-    if file_sha256(resolve(normal_report["path"])) != normal_report["sha256"]:
+    normal_path = resolve(normal_report["path"])
+    if file_sha256(normal_path) != normal_report["sha256"]:
         raise ValueError("normal generation report drift")
+    verified_normals = verify_normal_generation_report(config, normal_path)
+    if verified_normals.get("method") != normal_report.get("method") or int(verified_normals.get("knn", -1)) != int(normal_report.get("knn", -2)):
+        raise ValueError("normal generation report metadata drift")
+    audit = report.get("official_data_audit")
+    if not isinstance(audit, Mapping):
+        raise ValueError("official data audit missing from provenance")
+    if file_sha256(resolve(audit["path"])) != audit["sha256"]:
+        raise ValueError("official data audit drift")
+    if file_sha256(resolve(audit["frozen_path"])) != audit["sha256"]:
+        raise ValueError("frozen official data audit drift")
+    init_entry = report.get("decoder_initialization")
+    if not isinstance(init_entry, Mapping):
+        raise ValueError("decoder initialization missing from provenance")
+    init_path = resolve(init_entry["path"])
+    if file_sha256(init_path) != init_entry["sha256"]:
+        raise ValueError("decoder initialization file drift")
+    _, init_report = load_initialization(init_path, expected_kwargs=decoder_kwargs(config))
+    if init_report.get("tensor_state_sha256") != init_entry.get("tensor_state_sha256"):
+        raise ValueError("decoder initialization tensor hash drift")
     for arm, arm_cfg in config["arms"].items():
         for key in ("checkpoint", "decoder_checkpoint"):
             path = resolve(arm_cfg[key])
