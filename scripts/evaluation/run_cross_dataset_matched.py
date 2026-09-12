@@ -293,12 +293,25 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"duplicate official scene panel: {scene}")
         data_path = official_root / "scans" / f"{scene}.ply"
         points, _colors, labels = read_ply(data_path)
-        objects = protocol.objects_from_official_labels(
+        all_objects = protocol.objects_from_official_labels(
             labels, scene, semantic_by_object=semantics
         )
-        object_ids = [int(item["instance"]) for item in objects]
-        if any(int(obj) not in set(np.unique(labels).tolist()) for obj in object_ids):
-            raise ValueError(f"{scene}: object extraction mismatch")
+        # The official MO list names the requested objects for this scene.
+        # Unrequested positive labels are valid distractors and must not make
+        # a LitePT representative-coverage check fail.
+        if not isinstance(value, Mapping) or not isinstance(value.get("obj"), Mapping):
+            raise ValueError(f"{key}: official object mapping is missing")
+        raw_obj = value["obj"]
+        object_count = int(str(key).rsplit("_obj_", 1)[1])
+        expected_labels = [str(index) for index in range(1, object_count + 1)]
+        if set(str(label) for label in raw_obj) != set(expected_labels):
+            raise ValueError(f"{key}: official object mapping does not match its count")
+        object_ids = [int(raw_obj.get(label, raw_obj.get(int(label)))) for label in expected_labels]
+        by_instance = {int(item["instance"]): item for item in all_objects}
+        missing_official = [obj for obj in object_ids if obj not in by_instance]
+        if missing_official:
+            raise ValueError(f"{scene}: official requested objects absent from labels: {missing_official}")
+        objects = [by_instance[obj] for obj in object_ids]
         record = _scene_record(
             config, scene=scene, kind="scene", data_path=data_path,
             normal_path=normal_root / str(config["dataset"]) / f"{scene}.npy",
