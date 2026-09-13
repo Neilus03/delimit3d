@@ -263,12 +263,14 @@ def _one_step(cfg: Mapping[str, Any], *, updates: int, output: Path) -> dict[str
     coverage_states_by_scene: dict[
         str, dict[str, DeterministicCoverageState | None]
     ] = {}
+    scene_visit_epochs: dict[str, int] = {}
     last: dict[str, Any] = {}
     for update in range(1, int(updates) + 1):
         scene_id = scene_ids[(update - 1) % len(scene_ids)]
         if scene_id not in scene_cache:
             scene_cache[scene_id] = _load_scene(scene_id, cfg)
         scene = scene_cache[scene_id]
+        scene_epoch = scene_visit_epochs.get(scene_id, 0)
         coverage_states = coverage_states_by_scene.setdefault(
             scene_id, {cell: None for cell in source_cells}
         )
@@ -282,7 +284,7 @@ def _one_step(cfg: Mapping[str, Any], *, updates: int, output: Path) -> dict[str
         points = torch.from_numpy(points_np).to(device)
         plan = build_sonata_v2_plan(
             scene=scene,
-            epoch=update - 1,
+            epoch=scene_epoch,
             seed=seed,
             points=points,
             cells=source_cells,
@@ -294,7 +296,8 @@ def _one_step(cfg: Mapping[str, Any], *, updates: int, output: Path) -> dict[str
             if state_after is not None:
                 coverage_states[str(cell)] = DeterministicCoverageState.from_dict(
                     state_after
-                ).for_epoch(update)
+                ).for_epoch(scene_epoch + 1)
+        scene_visit_epochs[scene_id] = scene_epoch + 1
         optimizer.zero_grad(set_to_none=True)
         forward_seed = stable_seed(seed, scene_id, update, "sonata-forward")
         result = model(
