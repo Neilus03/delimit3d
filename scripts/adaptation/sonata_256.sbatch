@@ -2,8 +2,8 @@
 #SBATCH --job-name=sonata256
 #SBATCH --partition=gpuhe.120h
 #SBATCH --gpus=rtx_4090:1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem-per-cpu=4G
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=8G
 #SBATCH --time=12:00:00
 #SBATCH --output=/cluster/work/igp_psr/nedela/%x-%j.out
 #SBATCH --error=/cluster/work/igp_psr/nedela/%x-%j.err
