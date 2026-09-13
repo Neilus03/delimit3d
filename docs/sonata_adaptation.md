@@ -41,7 +41,7 @@ export PYTHONPATH=$PWD/src:/cluster/work/igp_psr/nedela/sonata
 ```
 
 Before training, submit the one-scene CUDA contract check. It requests one
-RTX 4090, 8 CPU cores, and 64 GiB of host RAM and performs no optimizer step:
+RTX 4090, 4 CPU cores, and 8 GiB of host RAM and performs no optimizer step:
 
 ```bash
 sbatch --export=ALL scripts/adaptation/sonata_256.sbatch smoke
