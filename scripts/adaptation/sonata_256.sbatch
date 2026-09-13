@@ -11,9 +11,29 @@ set -euo pipefail
 
 repo=/cluster/home/nedela/nedela/projects/delimit3d
 python=/cluster/work/igp_psr/nedela/litept-env/bin/python
-config=${SONATA_CONFIG:-${repo}/configs/adaptation/sonata_rgbn6_256.example.yaml}
+expected_commit=__SONATA_SETUP_COMMIT__
+artifact=/cluster/work/igp_psr/nedela/delimit3d_sonata_rgbn6_256_v1
+archive_root=${artifact}/source_snapshots
+archive=${archive_root}/delimit3d-${expected_commit}.tar
+snapshot=${archive_root}/delimit3d-${expected_commit}
+config=${SONATA_CONFIG:-${snapshot}/configs/adaptation/sonata_rgbn6_256.example.yaml}
 mode=${1:-preflight}
-export PYTHONPATH="${repo}/src:/cluster/work/igp_psr/nedela/sonata:${PYTHONPATH:-}"
+
+# The source archive is made from the committed setup only; unrelated existing
+# untracked work in the repository is never imported into a GPU job.
+actual_commit=$(git -C "${repo}" rev-parse HEAD)
+test "${actual_commit}" = "${expected_commit}"
+mkdir -p "${archive_root}"
+if [ ! -s "${archive}" ]; then
+  git -C "${repo}" archive --format=tar "${expected_commit}" > "${archive}"
+fi
+archive_sha=$(sha256sum "${archive}" | awk '{print $1}')
+if [ ! -f "${snapshot}/scripts/adaptation/run_sonata_adaptation.py" ]; then
+  mkdir -p "${snapshot}"
+  tar -xf "${archive}" -C "${snapshot}"
+fi
+
+export PYTHONPATH="${snapshot}/src:/cluster/work/igp_psr/nedela/sonata:${PYTHONPATH:-}"
 
 # Never silently run on an unapproved GPU type.
 gpu_report=$(nvidia-smi --query-gpu=index,name,memory.total,uuid --format=csv,noheader)
@@ -25,5 +45,10 @@ esac
 case "${gpu_report}" in *"2080"*) echo "RTX 2080 Ti is forbidden" >&2; exit 2;; esac
 
 # The source/checkpoint and data manifest are external and hashed by prepare.
-cd "${repo}"
+mkdir -p "${artifact}"
+cat > "${artifact}/launch_${SLURM_JOB_ID}.json" <<EOF
+{"schema":"delimit3d_sonata_launch/v1","slurm_job_id":"${SLURM_JOB_ID}","hostname":"$(hostname)","mode":"${mode}","source_commit":"${expected_commit}","source_archive":"${archive}","source_archive_sha256":"${archive_sha}","checkpoint":"/cluster/work/igp_psr/nedela/sonata_weights/sonata.pth","config":"${config}","gpu_inventory":"${gpu_report//$'\n'/; }","started":"$(date -Is)"}
+EOF
+
+cd "${snapshot}"
 exec "${python}" scripts/adaptation/run_sonata_adaptation.py --config "${config}" --mode "${mode}"
