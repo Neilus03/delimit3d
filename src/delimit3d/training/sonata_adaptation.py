@@ -168,10 +168,17 @@ class SonataEncoder(nn.Module):
         if self.grid_size <= 0:
             raise ValueError("grid_size must be positive")
         self.output_dim = int(getattr(self.backbone, "enc_channels", [SONATA_DEFAULT_OUTPUT_DIM])[-1])
-        if int(getattr(self.backbone, "in_channels", -1)) != SONATA_INPUT_CHANNELS:
+        input_channels = getattr(self.backbone, "in_channels", None)
+        if input_channels is None:
+            embedding = getattr(self.backbone, "embedding", None)
+            stem = getattr(embedding, "stem", None)
+            linear = getattr(stem, "linear", None)
+            input_channels = getattr(linear, "in_features", None)
+        self.input_channels = int(input_channels) if input_channels is not None else None
+        if self.input_channels != SONATA_INPUT_CHANNELS:
             raise RuntimeError(
                 "Sonata checkpoint input contract drifted: expected 9 channels "
-                f"(coord+RGB+normal), got {getattr(self.backbone, 'in_channels', None)!r}"
+                f"(coord+RGB+normal), got {input_channels!r}"
             )
 
     @staticmethod
