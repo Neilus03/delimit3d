@@ -11,7 +11,7 @@ set -euo pipefail
 
 repo=/cluster/home/nedela/nedela/projects/delimit3d
 python=/cluster/work/igp_psr/nedela/litept-env/bin/python
-expected_commit=__SONATA_SETUP_COMMIT__
+expected_commit=0c44aa32c1cb174bd1e7942d4f32b34d877f9c22
 artifact=/cluster/work/igp_psr/nedela/delimit3d_sonata_rgbn6_256_v1
 archive_root=${artifact}/source_snapshots
 archive=${archive_root}/delimit3d-${expected_commit}.tar
