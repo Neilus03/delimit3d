@@ -11,12 +11,14 @@ set -euo pipefail
 
 repo=/cluster/home/nedela/nedela/projects/delimit3d
 python=/cluster/work/igp_psr/nedela/litept-env/bin/python
-expected_commit=3247a72fadcc16c747eaf5fdf271aae8529cc7f7
+expected_commit=b85d0c9a9caf490c53134599e4c9ec24a7a4e40d
 artifact=/cluster/work/igp_psr/nedela/delimit3d_sonata_rgbn6_256_v1
 archive_root=${artifact}/source_snapshots
 archive=${archive_root}/delimit3d-${expected_commit}.tar
 snapshot=${archive_root}/delimit3d-${expected_commit}
-config=${snapshot}/configs/adaptation/sonata_rgbn6_256.example.yaml
+train_commit=3247a72fadcc16c747eaf5fdf271aae8529cc7f7
+train_snapshot=${archive_root}/delimit3d-${train_commit}
+config=${train_snapshot}/configs/adaptation/sonata_rgbn6_256.example.yaml
 
 actual_commit=$(git -C "${repo}" rev-parse HEAD)
 git -C "${repo}" merge-base --is-ancestor "${expected_commit}" "${actual_commit}"
@@ -44,6 +46,7 @@ pack=${artifact}/fixed_eval_pack
 output=${artifact}/sonata_fixed_pair_u256.json
 test -s "${adapted}"
 test -f "${pack}/manifest.json"
+test -f "${config}"
 mkdir -p "${artifact}"
 cat > "${artifact}/evaluation_launch_${SLURM_JOB_ID}.json" <<EOF
 {"schema":"delimit3d_sonata_fixed_pair_launch/v1","slurm_job_id":"${SLURM_JOB_ID}","hostname":"$(hostname)","source_commit":"${expected_commit}","source_archive":"${archive}","source_archive_sha256":"${archive_sha}","config":"${config}","pack":"${pack}","adapted_checkpoint":"${adapted}","output":"${output}","gpu_inventory":"${gpu_report//$'\n'/; }","started":"$(date -Is)"}
