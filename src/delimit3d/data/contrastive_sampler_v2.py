@@ -1974,6 +1974,7 @@ def sample_multigranular_frame_group_plan(
     planning_device: str | torch.device | None = None,
     timing: dict[str, Any] | None = None,
     materialize_full_preselection_evidence: bool = False,
+    defer_token_loss: bool = True,
 ) -> MultigranularFrameGroupPlan:
     """Build deterministic, ordered, frame-local groups for one scene visit.
 
@@ -2469,65 +2470,69 @@ def sample_multigranular_frame_group_plan(
             frame = source_frames[frame_position]
             planning_frame = planning_frames[frame_position]
             frame_id = frame.frame_id
-            token_pair_chunks: list[torch.Tensor] = []
-            token_pair_offsets = [0]
-            for proposal_index in proposal_indices:
-                raw_position = entry_position_by_key[
-                    (int(frame_position), int(proposal_index))
-                ]
-                token_pairs = entry_token_pair_cache.get(raw_position)
-                if token_pairs is None:
-                    raise RuntimeError(
-                        "selected eligible proposal has no cached native-dec0 pairs"
+            token_pair_offsets_tensor: torch.Tensor | None = None
+            token_pair_indices_tensor: torch.Tensor | None = None
+            token_pair_digest: str | None = None
+            if defer_token_loss:
+                token_pair_chunks: list[torch.Tensor] = []
+                token_pair_offsets = [0]
+                for proposal_index in proposal_indices:
+                    raw_position = entry_position_by_key[
+                        (int(frame_position), int(proposal_index))
+                    ]
+                    token_pairs = entry_token_pair_cache.get(raw_position)
+                    if token_pairs is None:
+                        raise RuntimeError(
+                            "selected eligible proposal has no cached native-dec0 pairs"
+                        )
+                    token_pairs = token_pairs.to(device=points.device, dtype=torch.long)
+                    token_pair_chunks.append(token_pairs)
+                    token_pair_offsets.append(
+                        token_pair_offsets[-1] + int(token_pairs.shape[0])
                     )
-                token_pairs = token_pairs.to(device=points.device, dtype=torch.long)
-                token_pair_chunks.append(token_pairs)
-                token_pair_offsets.append(
-                    token_pair_offsets[-1] + int(token_pairs.shape[0])
-                )
-            token_pair_offsets_tensor = torch.tensor(
-                token_pair_offsets,
-                dtype=torch.long,
-                device=points.device,
-            )
-            token_pair_indices_tensor = (
-                torch.cat(token_pair_chunks, dim=0)
-                if token_pair_chunks
-                else torch.empty(
-                    (0, 2), dtype=torch.long, device=points.device
-                )
-            )
-            token_pair_proposal_indices = torch.repeat_interleave(
-                torch.arange(
-                    len(proposal_indices),
+                token_pair_offsets_tensor = torch.tensor(
+                    token_pair_offsets,
                     dtype=torch.long,
                     device=points.device,
-                ),
-                token_pair_offsets_tensor[1:] - token_pair_offsets_tensor[:-1],
-            )
-            token_pair_labels = torch.tensor(
-                proposal_indices,
-                dtype=torch.long,
-                device=points.device,
-            )[token_pair_proposal_indices]
-            token_pair_digest = token_positive_pair_payload_digest(
-                token_pair_offsets_tensor,
-                token_pair_indices_tensor,
-                algorithm_version=SAMPLER_ALGORITHM_VERSION,
-                preselection_policy=PRESELECTION_POLICY,
-                proposal_labels=token_pair_labels,
-                pair_proposal_indices=token_pair_proposal_indices,
-            )
-            validate_token_positive_pair_payload(
-                token_pair_offsets_tensor,
-                token_pair_indices_tensor,
-                token_pair_digest,
-                proposal_count=len(proposal_indices),
-                algorithm_version=SAMPLER_ALGORITHM_VERSION,
-                preselection_policy=PRESELECTION_POLICY,
-                proposal_labels=token_pair_labels,
-                pair_proposal_indices=token_pair_proposal_indices,
-            )
+                )
+                token_pair_indices_tensor = (
+                    torch.cat(token_pair_chunks, dim=0)
+                    if token_pair_chunks
+                    else torch.empty(
+                        (0, 2), dtype=torch.long, device=points.device
+                    )
+                )
+                token_pair_proposal_indices = torch.repeat_interleave(
+                    torch.arange(
+                        len(proposal_indices),
+                        dtype=torch.long,
+                        device=points.device,
+                    ),
+                    token_pair_offsets_tensor[1:] - token_pair_offsets_tensor[:-1],
+                )
+                token_pair_labels = torch.tensor(
+                    proposal_indices,
+                    dtype=torch.long,
+                    device=points.device,
+                )[token_pair_proposal_indices]
+                token_pair_digest = token_positive_pair_payload_digest(
+                    token_pair_offsets_tensor,
+                    token_pair_indices_tensor,
+                    algorithm_version=SAMPLER_ALGORITHM_VERSION,
+                    preselection_policy=PRESELECTION_POLICY,
+                    proposal_labels=token_pair_labels,
+                    pair_proposal_indices=token_pair_proposal_indices,
+                )
+                validate_token_positive_pair_payload(
+                    token_pair_offsets_tensor,
+                    token_pair_indices_tensor,
+                    token_pair_digest,
+                    proposal_count=len(proposal_indices),
+                    algorithm_version=SAMPLER_ALGORITHM_VERSION,
+                    preselection_policy=PRESELECTION_POLICY,
+                    proposal_labels=token_pair_labels,
+                    pair_proposal_indices=token_pair_proposal_indices,
+                )
             if frame_id not in device_relation_cache:
                 support = get_frame_support(frame_id)
                 relation_offsets = support["relation_offsets"].to(points.device)
@@ -2599,7 +2604,7 @@ def sample_multigranular_frame_group_plan(
                     require_negative_proposal_membership=bool(
                         require_negative_proposal_membership
                     ),
-                    defer_token_loss=True,
+                    defer_token_loss=bool(defer_token_loss),
                     generator=generator,
                     prepared_visible_indices=prepared["visible"],
                     prepared_relation_points=prepared["relation_points"],
@@ -2718,6 +2723,7 @@ def sample_multigranular_frame_groups(
     planning_device: str | torch.device | None = None,
     timing: dict[str, Any] | None = None,
     materialize_full_preselection_evidence: bool = False,
+    defer_token_loss: bool = True,
 ) -> tuple[FrameLocalContrastiveGroup, ...]:
     """Compatibility wrapper returning only ordered frame-local groups.
 
@@ -2747,6 +2753,7 @@ def sample_multigranular_frame_groups(
         planning_device=planning_device,
         timing=timing,
         materialize_full_preselection_evidence=materialize_full_preselection_evidence,
+        defer_token_loss=bool(defer_token_loss),
     ).groups
 
 
