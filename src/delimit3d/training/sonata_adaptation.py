@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 
 from delimit3d.data.contrastive_sampler_v2 import (
+    DeterministicCoverageState,
     FrameProposalCatalog,
     sample_multigranular_frame_group_plan,
 )
@@ -83,6 +84,7 @@ def build_sonata_v2_plan(
     points: torch.Tensor,
     cells: Sequence[str],
     sampling: Any,
+    coverage_states: Mapping[str, DeterministicCoverageState | None] | None = None,
 ):
     """Build the same deterministic three-granularity plan used by LitePT V2."""
     cell_tuple = tuple(str(cell) for cell in cells)
@@ -104,7 +106,7 @@ def build_sonata_v2_plan(
         feature_candidate_pool=int(sampling.feature_candidate_pool),
         require_negative_proposal_membership=True,
         operation="sonata-rgbn6-pretraining-v2",
-        coverage_states=None,
+        coverage_states=coverage_states,
     )
 
 

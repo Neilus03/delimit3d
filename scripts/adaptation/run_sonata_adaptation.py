@@ -217,6 +217,7 @@ def _state_hash(module: Any) -> str:
 
 def _one_step(cfg: Mapping[str, Any], *, updates: int, output: Path) -> dict[str, Any]:
     import torch
+    from delimit3d.data.contrastive_sampler_v2 import DeterministicCoverageState
     from delimit3d.training.adaptation import build_scene_visit_input
     from delimit3d.training.sonata_adaptation import build_sonata_v2_plan
     from delimit3d.training.contracts import load_scene_ids, stable_seed
@@ -249,6 +250,12 @@ def _one_step(cfg: Mapping[str, Any], *, updates: int, output: Path) -> dict[str
     model.train()
     log_path = output / "metrics.jsonl"
     scene_cache: dict[str, Any] = {}
+    coverage_states: dict[str, DeterministicCoverageState | None] = {
+        str(cell): None
+        for cell in cfg.get("sampling", {}).get(
+            "source_cells", ["2d/g02", "2d/g05", "2d/g08"]
+        )
+    }
     last: dict[str, Any] = {}
     for update in range(1, int(updates) + 1):
         scene_id = scene_ids[(update - 1) % len(scene_ids)]
@@ -272,7 +279,14 @@ def _one_step(cfg: Mapping[str, Any], *, updates: int, output: Path) -> dict[str
                 "source_cells", ["2d/g02", "2d/g05", "2d/g08"]
             ),
             sampling=sampling,
+            coverage_states=coverage_states,
         )
+        for cell, coverage in plan.coverage_by_cell.items():
+            state_after = coverage.get("state_after")
+            if state_after is not None:
+                coverage_states[str(cell)] = DeterministicCoverageState.from_dict(
+                    state_after
+                ).for_epoch(update)
         optimizer.zero_grad(set_to_none=True)
         forward_seed = stable_seed(seed, scene_id, update, "sonata-forward")
         result = model(
@@ -343,6 +357,7 @@ def smoke(cfg: Mapping[str, Any]) -> None:
     import torch
     from delimit3d.training.adaptation import build_scene_visit_input
     from delimit3d.training.contracts import load_scene_ids, stable_seed
+    from delimit3d.data.contrastive_sampler_v2 import DeterministicCoverageState
     from delimit3d.training.sonata_adaptation import build_sonata_v2_plan
 
     model, device, sampling = _load_runtime(cfg)
