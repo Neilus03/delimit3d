@@ -26,11 +26,11 @@ model:
   projection_dim: 128
   projection_hidden_dim: 128
 
-# These variables are intentionally explicit.  Set them in the Euler shell or
-# replace them in a copied resolved config; prepare mode does not invent paths.
+# These paths are resolved and frozen for this experiment family.
+# They are external to Git and are verified by prepare mode.
 data:
-  source_root: ${DELIMIT3D_STRUCTURED3D_SOURCE_ROOT}
-  train_split: ${DELIMIT3D_STRUCTURED3D_TRAIN_SPLIT}
+  source_root: /cluster/work/igp_psr/nedela/partfield_contrastive_gt3_unsam3_scratch/structured3d_sources_raw_unsamv2_90val
+  train_split: /cluster/work/igp_psr/nedela/partfield_contrastive_gt3_unsam3_scratch/structured3d_splits/train.txt
   coordinate_normalization_policy: structured3d_local_y_up_to_scannet_z_up_v1
   source_cells: [2d/g02, 2d/g05, 2d/g08]
   source_manifest_verification: sha256_required
