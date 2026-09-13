@@ -27,6 +27,7 @@ from run_ptv3_adaptation import (
     sha256_json,
 )
 from delimit3d.training.contracts import load_scene_ids, stable_seed
+from delimit3d.data.contrastive_sampler_v2 import NoRetainedFrameGroupsError
 
 RUN_SCHEMA = "delimit3d_ptv3_matched_adaptation_run/v1"
 CHECKPOINT_SCHEMA = "delimit3d_ptv3_matched_adaptation_checkpoint/v1"
@@ -188,6 +189,15 @@ def _aggregate(payloads: list[dict[str, Any]], update: int, world: int, spr: int
         "lr_head": float(payloads[0]["lr_head"]),
         "scene_records": records,
         "rank_scene_ids": {str(payload["rank"]): payload["scene_ids"] for payload in payloads},
+        "requested_rank_scene_ids": {
+            str(payload["rank"]): payload["requested_scene_ids"] for payload in payloads
+        },
+        "skipped_rank_scene_ids": {
+            str(payload["rank"]): payload["skipped_scene_ids"] for payload in payloads
+        },
+        "resampled_scene_count": sum(
+            len(payload["skipped_scene_ids"]) for payload in payloads
+        ),
     }
 
 
@@ -244,64 +254,105 @@ def train(config: Mapping[str, Any], *, updates_override: int | None = None, smo
                 "augmentation_profile": config.get("data", {}).get("augmentation_profile"),
                 "feature_hard_mining": config.get("sampling", {}).get("feature_hard_mining"),
                 "source_cells": cells,
+                "invalid_scene_policy": "deterministic_resample",
+                "max_scene_retries": int(config.get("matched", {}).get("max_scene_retries", 64)),
             }, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
     dist.barrier()
     start_time = time.time()
     last: dict[str, Any] | None = None
+    max_scene_retries = int(config.get("matched", {}).get("max_scene_retries", 64))
+    if max_scene_retries < 1 or max_scene_retries > len(pool):
+        raise RuntimeError(
+            f"max_scene_retries must be in [1,{len(pool)}], got {max_scene_retries}"
+        )
     for update in range(1, updates + 1):
-        selected = _step_scene_ids(pool, update, spr)
+        requested = _step_scene_ids(pool, update, spr)
+        selected: list[str] = []
+        skipped_scene_ids: list[dict[str, Any]] = []
+        used_scene_ids: set[str] = set()
         optimizer.zero_grad(set_to_none=True)
         records: list[dict[str, Any]] = []
-        for index, scene_id in enumerate(selected):
-            if scene_id not in cache:
-                cache[scene_id] = _load_scene(scene_id, config)
-                while len(cache) > 24:
-                    cache.popitem(last=False)
-            else:
-                cache.move_to_end(scene_id)
-            scene = cache[scene_id]
-            scene_epoch = int(epochs.get(scene_id, 0))
-            state = coverage.setdefault(scene_id, {cell: None for cell in cells})
-            points, features, plan = _visit_and_plan(
-                scene=scene, scene_epoch=scene_epoch, update=update,
-                seed=seed, device=device, sampling=sampling, coverage=state,
-                cells=cells, config=config
-            )
-            for cell, item in plan.coverage_by_cell.items():
-                state_after = item.get("state_after")
-                if state_after is not None:
-                    from delimit3d.data.contrastive_sampler_v2 import DeterministicCoverageState
-                    state[str(cell)] = DeterministicCoverageState.from_dict(state_after).for_epoch(scene_epoch + 1)
-            epochs[scene_id] = scene_epoch + 1
-            forward_seed = stable_seed(seed, scene_id, update, "matched-forward")
-            context = ddp.no_sync() if index < len(selected) - 1 else contextlib.nullcontext()
-            with context:
-                result = ddp(points=points, features=features, batch=None, frame_groups=plan.groups, seed=forward_seed)
-                loss = result["loss_total"]
-                if not torch.isfinite(loss):
-                    raise RuntimeError(f"non-finite loss at global update {update}")
-                (loss / float(spr)).backward()
-            records.append({
-                "rank": rank, "scene_id": scene_id,
-                "loss": float(loss.detach()),
-                "cosine_gap": float(result.get("cosine_gap", 0.0)),
-                "positive_cosine_mean": float(result.get("positive_cosine_mean", 0.0)),
-                "negative_cosine_mean": float(result.get("negative_cosine_mean", 0.0)),
-                "hardest_negative_ranking_accuracy": float(result.get("hardest_negative_ranking_accuracy", 0.0)),
-                "temperature": float(result.get("temperature", 0.0)),
-                "group_count": int(result.get("group_count", len(plan.groups))),
-                "feature_dim": int(result.get("feature_dim", 0)),
-                "final_token_count": int(result.get("final_token_count", 0)),
-                "requested_proposals": pps,
-                "forward_seed": int(forward_seed),
-            })
+        for index, requested_scene_id in enumerate(requested):
+            requested_position = (update - 1) * spr + index
+            planned = False
+            for retry in range(max_scene_retries):
+                candidate = pool[(requested_position + retry) % len(pool)]
+                if candidate in used_scene_ids:
+                    continue
+                if candidate not in cache:
+                    cache[candidate] = _load_scene(candidate, config)
+                    while len(cache) > 24:
+                        cache.popitem(last=False)
+                else:
+                    cache.move_to_end(candidate)
+                scene = cache[candidate]
+                scene_epoch = int(epochs.get(candidate, 0))
+                state = coverage.setdefault(candidate, {cell: None for cell in cells})
+                try:
+                    points, features, plan = _visit_and_plan(
+                        scene=scene, scene_epoch=scene_epoch, update=update,
+                        seed=seed, device=device, sampling=sampling, coverage=state,
+                        cells=cells, config=config
+                    )
+                except NoRetainedFrameGroupsError:
+                    skipped_scene_ids.append({
+                        "requested_scene_id": requested_scene_id,
+                        "scene_id": candidate,
+                        "retry": retry,
+                        "reason": "no_retained_frame_groups",
+                    })
+                    continue
+                scene_id = candidate
+                selected.append(scene_id)
+                used_scene_ids.add(scene_id)
+                for cell, item in plan.coverage_by_cell.items():
+                    state_after = item.get("state_after")
+                    if state_after is not None:
+                        from delimit3d.data.contrastive_sampler_v2 import DeterministicCoverageState
+                        state[str(cell)] = DeterministicCoverageState.from_dict(state_after).for_epoch(scene_epoch + 1)
+                epochs[scene_id] = scene_epoch + 1
+                forward_seed = stable_seed(seed, scene_id, update, "matched-forward")
+                context = ddp.no_sync() if index < spr - 1 else contextlib.nullcontext()
+                with context:
+                    result = ddp(points=points, features=features, batch=None, frame_groups=plan.groups, seed=forward_seed)
+                    loss = result["loss_total"]
+                    if not torch.isfinite(loss):
+                        raise RuntimeError(f"non-finite loss at global update {update}")
+                    (loss / float(spr)).backward()
+                records.append({
+                    "rank": rank, "scene_id": scene_id,
+                    "loss": float(loss.detach()),
+                    "cosine_gap": float(result.get("cosine_gap", 0.0)),
+                    "positive_cosine_mean": float(result.get("positive_cosine_mean", 0.0)),
+                    "negative_cosine_mean": float(result.get("negative_cosine_mean", 0.0)),
+                    "hardest_negative_ranking_accuracy": float(result.get("hardest_negative_ranking_accuracy", 0.0)),
+                    "temperature": float(result.get("temperature", 0.0)),
+                    "group_count": int(result.get("group_count", len(plan.groups))),
+                    "feature_dim": int(result.get("feature_dim", 0)),
+                    "final_token_count": int(result.get("final_token_count", 0)),
+                    "requested_proposals": pps,
+                    "forward_seed": int(forward_seed),
+                    "requested_scene_id": requested_scene_id,
+                    "scene_retry": retry,
+                })
+                planned = True
+                break
+            if not planned:
+                raise RuntimeError(
+                    f"could not find a valid replacement for {requested_scene_id} "
+                    f"at update {update} after {max_scene_retries} attempts"
+                )
         grad_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), clip))
         factor = _set_lr(optimizer, config, update)
         optimizer.step()
         payload = {
-            "rank": rank, "scene_ids": selected, "scene_records": records,
+            "rank": rank,
+            "scene_ids": selected,
+            "requested_scene_ids": requested,
+            "skipped_scene_ids": skipped_scene_ids,
+            "scene_records": records,
             "grad_norm_before_clip": grad_norm,
             "lr_backbone": float(optimizer.param_groups[0]["lr"]),
             "lr_head": float(optimizer.param_groups[1]["lr"]),
