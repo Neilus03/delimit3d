@@ -820,7 +820,7 @@ def _object_trace(trace: Mapping[str, Any], local_id: int, obj: Mapping[str, Any
         state = dict(state)
         state["mean_iou"] = float(state["object_ious"][str(local_id)])
         states.append(state)
-    return {"scene": str(trace["scene"]), "object_count": 1, "states": states, "objects": [dict(obj)]}
+    return {"scene": str(trace["scene"]), "object_count": int(trace["object_count"]), "states": states, "objects": [dict(obj)]}
 
 
 def aggregate(config: Mapping[str, Any]) -> dict[str, Any]:
