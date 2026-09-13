@@ -311,14 +311,41 @@ class SonataContrastiveModel(nn.Module):
         encoded = self.encoder(
             points=points, colors=colors, normals=normals, seed=int(seed)
         )
-        projected = self.projector(encoded.point_features)
         groups = normalize_hierarchy_frame_groups(
             batch=batch, source_cell=None, frame_groups=frame_groups
         )
         if frame_groups is None:
+            # Preserve the legacy point-space path for callers that pass a
+            # materialized non-V2 batch.
+            projected = self.projector(encoded.point_features)
             result = self.criterion(projected.float(), groups[0].batch)
         else:
-            results = [self.criterion(projected.float(), group.batch) for group in groups]
+            # V2 frame groups carry deferred raw-space safety metadata.  Rebuild
+            # each group in pure native-token space after the encoder has
+            # produced its deterministic raw->final map; this is also where the
+            # feature-hard candidate pool can be selected from current tokens.
+            from delimit3d.losses.litept_hierarchy_supervision import (
+                build_token_pure_dec0_contrastive_batch,
+            )
+
+            projected = self.projector(encoded.token_features)
+            results: list[dict[str, Any]] = []
+            rebuild_metadata: list[dict[str, Any]] = []
+            for group in groups:
+                token_batch, metadata = build_token_pure_dec0_contrastive_batch(
+                    group.batch,
+                    encoded.raw_to_token,
+                    encoded.token_xyz,
+                    max_positive_pairs_per_proposal=64,
+                )
+                rebuild_metadata.append(metadata)
+                if token_batch is None or token_batch.num_pairs == 0:
+                    continue
+                results.append(self.criterion(projected.float(), token_batch))
+            if not results:
+                raise RuntimeError(
+                    "Sonata V2 token rebuild retained no contrastive groups"
+                )
             loss = torch.stack([item["loss_total"] for item in results]).mean()
             result = {
                 "loss_total": loss,
@@ -339,6 +366,8 @@ class SonataContrastiveModel(nn.Module):
                     / len(results)
                 ),
                 "group_count": len(results),
+                "token_rebuild_group_count": len(rebuild_metadata),
+                "token_rebuild_retained_group_count": len(results),
             }
         result.update(
             {
