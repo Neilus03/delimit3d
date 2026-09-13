@@ -105,6 +105,8 @@ def build_sonata_v2_plan(
         num_feature_hard_negatives=int(sampling.feature_hard_negatives),
         feature_candidate_pool=int(sampling.feature_candidate_pool),
         require_negative_proposal_membership=True,
+        require_hierarchy_routes=False,
+        defer_token_loss=False,
         operation="sonata-rgbn6-pretraining-v2",
         coverage_states=coverage_states,
     )
@@ -314,22 +316,51 @@ class SonataContrastiveModel(nn.Module):
         groups = normalize_hierarchy_frame_groups(
             batch=batch, source_cell=None, frame_groups=frame_groups
         )
-        if frame_groups is None:
-            # Preserve the legacy point-space path for callers that pass a
-            # materialized non-V2 batch.
+        use_token_rebuild = bool(
+            frame_groups is not None
+            and any(group.batch.deferred_token_loss is not None for group in groups)
+        )
+        if not use_token_rebuild:
+            # Sonata consumes materialized raw-point V2 negatives.  Its dense
+            # point features are deterministic expansions of the final tokens,
+            # so the criterion can use the exact sampled rows directly.
             projected = self.projector(encoded.point_features)
-            result = self.criterion(projected.float(), groups[0].batch)
+            results = [
+                self.criterion(projected.float(), group.batch) for group in groups
+            ]
+            if not results:
+                raise RuntimeError("Sonata V2 retained no contrastive groups")
+            loss = torch.stack([item["loss_total"] for item in results]).mean()
+            result = {
+                "loss_total": loss,
+                "loss_contrastive": float(loss.detach()),
+                "temperature": float(self.criterion.temperature.detach()),
+                "cosine_gap": float(
+                    sum(float(item["cosine_gap"]) for item in results) / len(results)
+                ),
+                "triplet_ranking_accuracy": float(
+                    sum(float(item["triplet_ranking_accuracy"]) for item in results)
+                    / len(results)
+                ),
+                "hardest_negative_ranking_accuracy": float(
+                    sum(
+                        float(item["hardest_negative_ranking_accuracy"])
+                        for item in results
+                    )
+                    / len(results)
+                ),
+                "group_count": len(results),
+            }
         else:
-            # V2 frame groups carry deferred raw-space safety metadata.  Rebuild
-            # each group in pure native-token space after the encoder has
-            # produced its deterministic raw->final map; this is also where the
-            # feature-hard candidate pool can be selected from current tokens.
+            # Keep the token-pure path available for a future Sonata token-plan
+            # variant; it is selected only when groups explicitly carry a
+            # deferred token-loss plan.
             from delimit3d.losses.litept_hierarchy_supervision import (
                 build_token_pure_dec0_contrastive_batch,
             )
 
             projected = self.projector(encoded.token_features)
-            results: list[dict[str, Any]] = []
+            results = []
             rebuild_metadata: list[dict[str, Any]] = []
             for group in groups:
                 token_batch, metadata = build_token_pure_dec0_contrastive_batch(
