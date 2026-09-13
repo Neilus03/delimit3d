@@ -11,6 +11,7 @@ remains native LitePT dec0 rather than the original MinkowskiEngine backbone.
 from __future__ import annotations
 
 import argparse
+import copy
 from collections import defaultdict, OrderedDict
 import contextlib
 import csv
@@ -713,6 +714,99 @@ def _checkpoint_for(config: Mapping[str, Any], arm: str) -> Path:
     return path
 
 
+def _refresh_trace_summaries(trace: dict[str, Any], config: Mapping[str, Any]) -> None:
+    """Recompute threshold and NoC summaries after adding virtual clicks."""
+    states = trace["states"]
+    count = int(trace["object_count"])
+    trace["thresholds"] = {
+        str(value): core.metric_at_threshold(states, value * count)
+        for value in (1, 3, 5, 10, 15, 20)
+    }
+    noc: dict[str, float] = {}
+    for iou_threshold in (0.50, 0.65, 0.80, 0.85, 0.90):
+        object_clicks: list[float] = []
+        for local_id in range(1, count + 1):
+            reached = [
+                float(state["clicks_per_object"])
+                for state in states
+                if float(state["object_ious"][str(local_id)]) >= iou_threshold
+            ]
+            object_clicks.append(
+                min(reached) if reached else float(config["protocol"]["click_budget"])
+            )
+        noc[f"{iou_threshold:.2f}"] = float(np.mean(object_clicks))
+    trace["noc"] = noc
+
+
+def _pad_trace_to_budget(
+    trace: Mapping[str, Any],
+    prediction_path: Path,
+    config: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Pad an early-stop trace with virtual clicks through the official budget.
+
+    AGILE3D's accounting reports exact states at 1/3/5/10/15/20 clicks per
+    object.  A decoder can reach a perfect prediction before the last budget;
+    those later states must retain the last prediction while their click count
+    advances.  This helper is idempotent and also migrates traces written by
+    the pre-padding evaluator so a resumed evaluation uses one consistent
+    accounting rule.
+    """
+    updated = copy.deepcopy(dict(trace))
+    states = updated.get("states")
+    if not isinstance(states, list) or not states:
+        raise ValueError("trace.states must be a non-empty list")
+    count = int(updated["object_count"])
+    max_clicks = int(config["protocol"]["click_budget"])
+    max_total = max_clicks * count
+    last_total = int(states[-1]["total_clicks"])
+    if last_total > max_total:
+        raise ValueError(
+            f"trace has {last_total} clicks but the configured maximum is {max_total}"
+        )
+    if last_total == max_total:
+        return updated, None
+
+    prediction_path = Path(prediction_path)
+    if not prediction_path.is_file():
+        raise FileNotFoundError(f"prediction archive missing for trace: {prediction_path}")
+    with np.load(prediction_path, allow_pickle=False) as archive:
+        predictions = {key: np.asarray(archive[key]) for key in archive.files}
+    last_key = f"state_{len(states) - 1:03d}"
+    if last_key not in predictions:
+        raise KeyError(f"prediction archive lacks {last_key}: {prediction_path}")
+    last_prediction = np.asarray(predictions[last_key]).copy()
+    before_hash = file_sha256(prediction_path)
+    original_total = last_total
+    original_state_count = len(states)
+    for total in range(last_total + 1, max_total + 1):
+        state_index = len(states)
+        predictions[f"state_{state_index:03d}"] = last_prediction.copy()
+        state = copy.deepcopy(states[-1])
+        state["state"] = int(state_index)
+        state["total_clicks"] = int(total)
+        state["clicks_per_object"] = float(total / count)
+        state.pop("new_click_events", None)
+        state["perfect_prediction_padded"] = True
+        states.append(state)
+    temporary = prediction_path.with_name(prediction_path.name + f".tmp.{os.getpid()}")
+    with temporary.open("wb") as handle:
+        np.savez_compressed(handle, **predictions)
+    os.replace(temporary, prediction_path)
+    updated["states"] = states
+    updated["virtual_click_padding"] = {
+        "schema": "delimit3d_virtual_click_padding/v1",
+        "reason": "no_new_clicks",
+        "from_total_clicks": int(original_total),
+        "to_total_clicks": int(max_total),
+        "states_added": int(len(states) - original_state_count),
+        "prediction_sha256_before": before_hash,
+        "prediction_sha256_after": file_sha256(prediction_path),
+    }
+    _refresh_trace_summaries(updated, config)
+    return updated, dict(updated["virtual_click_padding"])
+
+
 def evaluate(config: Mapping[str, Any], arm: str, mode: str) -> dict[str, Any]:
     if mode not in ("MO", "SO"):
         raise ValueError("mode must be MO or SO")
@@ -751,8 +845,17 @@ def evaluate(config: Mapping[str, Any], arm: str, mode: str) -> dict[str, Any]:
                 trace = json.loads(trace_path.read_text())
                 if trace.get("checkpoint_sha256") != file_sha256(checkpoint):
                     raise ValueError(f"{identity}: trace checkpoint drift")
-                if not trace.get("objects"):
+                prediction_path = Path(
+                    trace.get(
+                        "mask_path",
+                        out / "predictions" / f"{index:05d}_{hashlib.sha256(identity.encode()).hexdigest()[:16]}.npz",
+                    )
+                )
+                trace, padding = _pad_trace_to_budget(trace, prediction_path, config)
+                objects_missing = not trace.get("objects")
+                if objects_missing:
                     trace["objects"] = requested_objects
+                if padding or objects_missing:
                     dump(trace_path, trace)
             else:
                 prediction_path = out / "predictions" / f"{index:05d}_{hashlib.sha256(identity.encode()).hexdigest()[:16]}.npz"
@@ -760,6 +863,7 @@ def evaluate(config: Mapping[str, Any], arm: str, mode: str) -> dict[str, Any]:
                     decoder, cache.get(scene), records[scene], requested_ids,
                     device=device, config=config, mask_path=prediction_path,
                 )
+                trace, _padding = _pad_trace_to_budget(trace, prediction_path, config)
                 trace["object_ids"] = list(trace.get("panel_objects", requested_ids))
                 trace["objects"] = requested_objects
                 trace.update({
