@@ -1,0 +1,69 @@
+# Public PointTransformerV3 -> Delimit3D short adaptation.
+# This file is resolved on pf-pc69, where the external paths below are valid.
+# The output directory is the Euler work filesystem mounted at /tmp/euler_cluster_nedela_rw.
+experiment:
+  name: delimit3d_ptv3_rgbn6_256_pf_v1
+  seed: 20260911
+  updates: 256
+  checkpoint_updates: [64, 128, 256]
+  claim_boundary: >-
+    256-update label-free adaptation of public ScanNet PTv3 features to
+    multigranular Structured3D 2D pseudomasks; this arm is an upstream
+    representation screen and makes no downstream claim by itself.
+
+model:
+  family: ptv3
+  ptv3_root: /home/nedela/delimit3d_ptv3_pf_v1/external/PointTransformerV3
+  source_commit: 3229e9b7de1770c8ad17c316f8e349982de509f8
+  checkpoint: /home/nedela/delimit3d_ptv3_pf_v1/external/ptv3_scannet_model_best.pth
+  checkpoint_sha256: 40206376ff2f83f48e4d1bc27d5c5d96be7c87c5d11eb45fe7be501959040e7f
+  checkpoint_repository: Pointcept/PointTransformerV3
+  checkpoint_revision: scannet-semseg-pt-v3m1-0-base
+  input_contract: rgbn6_pointcept_scannet_v1
+  grid_size: 0.02
+  enable_flash: true
+  shuffle_orders: true
+  projection_dim: 128
+  projection_hidden_dim: 128
+  architecture:
+    in_channels: 6
+    enc_channels: [32, 64, 128, 256, 512]
+    dec_channels: [64, 64, 128, 256]
+    enc_depths: [2, 2, 2, 6, 2]
+    dec_depths: [2, 2, 2, 2]
+    order: [z, z-trans, hilbert, hilbert-trans]
+    stride: [2, 2, 2, 2]
+
+data:
+  # This is the same audited source pack used by the completed Sonata arm.
+  source_root: /home/nedela/delimit3d_sonata_pf_v1/external/structured_sources
+  train_split: /home/nedela/delimit3d_sonata_pf_v1/external/train.txt
+  coordinate_normalization_policy: structured3d_local_y_up_to_scannet_z_up_v1
+  source_cells: [2d/g02, 2d/g05, 2d/g08]
+  source_manifest_verification: sha256_required
+  augmentation_profile: none
+
+sampling:
+  mode: coverage_multigranular_v2
+  profile: pf_hnm_512_v1
+  source_cells: [2d/g02, 2d/g05, 2d/g08]
+  negative_membership_policy: require_negative_proposal_membership
+  feature_hard_mining: enabled
+
+optimizer:
+  name: AdamW
+  backbone_lr: 0.0001
+  head_lr: 0.003
+  weight_decay: 0.0001
+  gradient_clip_norm: 0.1
+
+resources:
+  host: pf-pc69
+  gpu: RTX 4090
+  visible_device: 0
+  cpus: 8
+  memory_gib: 64
+
+paths:
+  output: /tmp/euler_cluster_nedela_rw/work/igp_psr/nedela/delimit3d_ptv3_rgbn6_256_pf_v1
+

@@ -51,3 +51,17 @@ YAML and run provenance. See:
 - https://github.com/facebookresearch/sonata
 - https://github.com/facebookresearch/sonata/blob/main/LICENSE
 - https://huggingface.co/facebook/sonata
+
+## Point Transformer V3
+
+The public PTv3 adaptation path uses the detached Point Transformer V3 model
+from Pointcept at source revision
+`3229e9b7de1770c8ad17c316f8e349982de509f8`. The external source checkout and
+public ScanNet checkpoint remain outside this repository under the configured
+artifact root; the checkpoint SHA-256 and source revision are recorded in each
+run's provenance. The upstream implementation is released under the MIT
+license. See:
+
+- https://github.com/Pointcept/PointTransformerV3
+- https://huggingface.co/Pointcept/PointTransformerV3
+- https://github.com/Pointcept/PointTransformerV3/blob/main/LICENSE
