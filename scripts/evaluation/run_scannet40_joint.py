@@ -332,13 +332,18 @@ def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
 
     parent = resolve(config["paths"]["parent_run_root"])
     parent_manifest_path = parent / "selection_manifest.json"
-    parent_manifest_sha = file_sha256(parent_manifest_path)
-    if parent_manifest_sha != str(config["parent_manifest_sha256"]):
-        raise ValueError("parent selection manifest hash does not match the declared protocol")
+    parent_manifest_file_sha = file_sha256(parent_manifest_path)
     parent_init = parent / "decoder_init.pt"
     if file_sha256(parent_init) != str(config["parent_decoder_initialization_file_sha256"]):
         raise ValueError("parent decoder initialization hash does not match the declaration")
     parent_manifest = json.loads(parent_manifest_path.read_text())
+    parent_manifest_sha = str(parent_manifest.get("manifest_sha256", ""))
+    parent_without_hash = dict(parent_manifest)
+    parent_without_hash.pop("manifest_sha256", None)
+    if not parent_manifest_sha or json_sha256(parent_without_hash) != parent_manifest_sha:
+        raise ValueError("parent selection manifest has an invalid canonical hash")
+    if parent_manifest_sha != str(config["parent_manifest_sha256"]):
+        raise ValueError("parent canonical manifest hash does not match the declared protocol")
     if len(parent_manifest.get("train_scenes", [])) != 1200:
         raise ValueError("parent manifest is not the official 1,200-scene training protocol")
     if len(parent_manifest.get("validation_scenes", [])) != 312:
@@ -428,6 +433,7 @@ def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
         "encoder_checkpoint_sha256": encoder_checkpoint_sha,
         "parent_run_root": str(parent),
         "parent_manifest_sha256": parent_manifest_sha,
+        "parent_manifest_file_sha256": parent_manifest_file_sha,
         "parent_decoder_initialization_file_sha256": file_sha256(parent_init),
         "litept_dependency": {
             "source_root": str(parent_dependency),
@@ -474,8 +480,12 @@ def verify_freeze(config: Mapping[str, Any]) -> dict[str, Any]:
     if json_sha256(config) != json_sha256(frozen):
         raise ValueError("runtime config differs from frozen resolved YAML")
     parent_manifest = resolve(config["paths"]["parent_run_root"]) / "selection_manifest.json"
-    if file_sha256(parent_manifest) != str(config["parent_manifest_sha256"]):
-        raise ValueError("parent selection manifest changed")
+    parent_manifest_payload = json.loads(parent_manifest.read_text())
+    if parent_manifest_payload.get("manifest_sha256") != str(config["parent_manifest_sha256"]):
+        raise ValueError("parent canonical manifest changed")
+    parent_manifest_file_sha = provenance.get("parent_manifest_file_sha256")
+    if parent_manifest_file_sha and file_sha256(parent_manifest) != parent_manifest_file_sha:
+        raise ValueError("parent selection manifest file changed")
     return provenance
 
 
