@@ -13,6 +13,7 @@ import argparse
 import contextlib
 import copy
 import hashlib
+import importlib.metadata
 import json
 import os
 import platform
@@ -29,7 +30,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -37,33 +37,77 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from delimit3d.data.single_scene_dataset import build_input_features
-from delimit3d.evaluation import scannet40_protocol as protocol
-from delimit3d.evaluation.agile3d_decoder import (
-    Agile3DClickDecoder,
-    compute_agile3d_losses,
-    load_initialization,
-    state_sha256,
-)
-from delimit3d.evaluation.agile3d_protocol import (
-    append_clicks,
-    array_sha256,
-    build_token_targets,
-    enforce_click_labels,
-    file_sha256,
-    json_sha256,
-    raw_object_ious,
-    scene_seed,
-    simulated_corrections,
-)
-from delimit3d.evaluation.features import load_backbone
-
-
 EXPERIMENT = "delimit3d_scannet40_agile3d_joint_v1"
 MANIFEST_SCHEMA = "delimit3d_scannet40_agile3d_joint_manifest/v1"
 CHECKPOINT_SCHEMA = "delimit3d_scannet40_agile3d_joint_checkpoint/v1"
 TRAIN_SCHEMA = "delimit3d_scannet40_agile3d_joint_training/v1"
 ARM = "delimit3d"
+
+
+def _load_train_runtime() -> None:
+    """Load CUDA/model modules only when an actual training worker starts."""
+    global Agile3DClickDecoder, append_clicks, array_sha256, build_input_features
+    global build_token_targets, compute_agile3d_losses, enforce_click_labels
+    global load_backbone, load_initialization, protocol, scene_seed
+    global simulated_corrections, state_sha256, torch
+    import torch as torch_module
+
+    torch = torch_module
+    from delimit3d.data.single_scene_dataset import build_input_features as _build_input_features
+    from delimit3d.evaluation import scannet40_protocol as _protocol
+    from delimit3d.evaluation.agile3d_decoder import (
+        Agile3DClickDecoder as _Agile3DClickDecoder,
+        compute_agile3d_losses as _compute_agile3d_losses,
+        load_initialization as _load_initialization,
+        state_sha256 as _state_sha256,
+    )
+    from delimit3d.evaluation.agile3d_protocol import (
+        append_clicks as _append_clicks,
+        array_sha256 as _array_sha256,
+        build_token_targets as _build_token_targets,
+        enforce_click_labels as _enforce_click_labels,
+        scene_seed as _scene_seed,
+        simulated_corrections as _simulated_corrections,
+    )
+    from delimit3d.evaluation.features import load_backbone as _load_backbone
+
+    Agile3DClickDecoder = _Agile3DClickDecoder
+    append_clicks = _append_clicks
+    array_sha256 = _array_sha256
+    build_input_features = _build_input_features
+    build_token_targets = _build_token_targets
+    compute_agile3d_losses = _compute_agile3d_losses
+    enforce_click_labels = _enforce_click_labels
+    load_backbone = _load_backbone
+    load_initialization = _load_initialization
+    protocol = _protocol
+    scene_seed = _scene_seed
+    simulated_corrections = _simulated_corrections
+    state_sha256 = _state_sha256
+
+
+def file_sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def json_sha256(payload: Any) -> str:
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def array_sha256(array: Any) -> str:
+    value = np.asarray(array)
+    return hashlib.sha256(
+        str(value.dtype).encode("ascii")
+        + str(tuple(value.shape)).encode("ascii")
+        + value.tobytes(order="C")
+    ).hexdigest()
 
 
 def parse_args() -> argparse.Namespace:
@@ -256,6 +300,27 @@ def _dependency_entries(root: Path) -> dict[str, str]:
     }
 
 
+def _decoder_initialization_report(
+    parent_manifest: Mapping[str, Any],
+    initialization_path: Path,
+    expected_kwargs: Mapping[str, Any],
+) -> dict[str, Any]:
+    report = copy.deepcopy(parent_manifest.get("decoder_initialization"))
+    if not isinstance(report, Mapping):
+        raise ValueError("parent manifest is missing decoder initialization provenance")
+    if report.get("schema") != "delimit3d_agile3d_click_decoder/v1":
+        raise ValueError("unexpected parent decoder initialization schema")
+    if dict(report.get("decoder_kwargs", {})) != dict(expected_kwargs):
+        raise ValueError("parent decoder initialization architecture differs")
+    expected_file_sha = str(report.get("file_sha256", ""))
+    actual_file_sha = file_sha256(initialization_path)
+    if actual_file_sha != expected_file_sha:
+        raise ValueError("decoder initialization file differs from parent provenance")
+    report["path"] = str(initialization_path)
+    report["file_sha256"] = actual_file_sha
+    return dict(report)
+
+
 def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
     """Freeze this source, the parent schedule, and the LitePT dependency."""
     verify_config(config)
@@ -315,8 +380,8 @@ def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
         raise RuntimeError("joint decoder initialization already exists with another hash")
     if not decoder_init.exists():
         shutil.copy2(parent_init, decoder_init)
-    _decoder, init_report = load_initialization(
-        decoder_init, expected_kwargs=decoder_kwargs(resolved)
+    init_report = _decoder_initialization_report(
+        parent_manifest, decoder_init, decoder_kwargs(resolved)
     )
 
     source_archive = freeze_root / f"source_{source_commit}.tar"
@@ -333,11 +398,15 @@ def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
         ).splitlines()
         if (REPO_ROOT / name).is_file()
     }
+    try:
+        torch_version = importlib.metadata.version("torch")
+    except importlib.metadata.PackageNotFoundError:
+        torch_version = "not-installed-on-preparation-host"
     environment = {
         "host": platform.node(),
         "python": sys.version,
-        "torch": torch.__version__,
-        "cuda_version": torch.version.cuda,
+        "torch": torch_version,
+        "cuda_version": "deferred-to-gpu-preflight",
     }
     dump(freeze_root / "environment_cpu.json", environment)
     encoder_checkpoint = resolve(resolved["encoder"]["checkpoint"])
@@ -441,8 +510,8 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
     init_path = root / "decoder_init.pt"
     if file_sha256(init_path) != file_sha256(parent_init):
         raise ValueError("copied decoder initialization does not match parent")
-    _decoder, init_report = load_initialization(
-        init_path, expected_kwargs=decoder_kwargs(config)
+    init_report = _decoder_initialization_report(
+        parent, init_path, decoder_kwargs(config)
     )
     manifest = {
         "schema": MANIFEST_SCHEMA,
@@ -495,7 +564,7 @@ def load_prepared(config: Mapping[str, Any]) -> dict[str, Any]:
     if file_sha256(schedule) != manifest["train_episodes_sha256"]:
         raise ValueError("joint episode schedule changed")
     init = resolve(manifest["decoder_initialization_path"])
-    _decoder, report = load_initialization(init, expected_kwargs=decoder_kwargs(config))
+    report = _decoder_initialization_report(manifest, init, decoder_kwargs(config))
     if report["tensor_state_sha256"] != manifest["decoder_initialization"]["tensor_state_sha256"]:
         raise ValueError("joint decoder initialization tensor hash changed")
     return manifest
@@ -985,6 +1054,10 @@ def startup_gradient_check(
 
 
 def gpu_preflight() -> dict[str, Any]:
+    global torch
+    import torch as torch_module
+
+    torch = torch_module
     inventory = subprocess.check_output(
         ["nvidia-smi", "--query-gpu=index,name,memory.total", "--format=csv,noheader"],
         text=True,
@@ -1053,6 +1126,7 @@ def heartbeat(config: Mapping[str, Any]):
 def train(config: Mapping[str, Any], resume: Path | None = None) -> dict[str, Any]:
     provenance = verify_freeze(config)
     manifest = load_prepared(config)
+    _load_train_runtime()
     root = root_of(config)
     device = torch.device("cuda")
     torch.cuda.set_device(0)
