@@ -36,3 +36,18 @@ implementation.
   not part of the Delimit3D runtime; LitePT provides the frozen token
   interface.
 
+
+## Sonata / Point Transformer V3
+
+The Sonata adaptation path uses the public encoder-only Sonata implementation
+from `facebookresearch/sonata`, source revision
+`18c09ff8d713494f78a8213792262b910977a65d` (retrieved 2026-09-13). The source
+code is licensed under the Apache License 2.0; the public pretrained weights
+are distributed by Meta under CC-BY-NC 4.0. The external source checkout and
+weights remain under `/cluster/work/igp_psr/nedela` and are not vendored into
+this repository. The resolved checkpoint SHA-256 is recorded in the adaptation
+YAML and run provenance. See:
+
+- https://github.com/facebookresearch/sonata
+- https://github.com/facebookresearch/sonata/blob/main/LICENSE
+- https://huggingface.co/facebook/sonata
