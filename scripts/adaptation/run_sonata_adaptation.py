@@ -250,18 +250,28 @@ def _one_step(cfg: Mapping[str, Any], *, updates: int, output: Path) -> dict[str
     model.train()
     log_path = output / "metrics.jsonl"
     scene_cache: dict[str, Any] = {}
-    coverage_states: dict[str, DeterministicCoverageState | None] = {
-        str(cell): None
+    source_cells = tuple(
+        str(cell)
         for cell in cfg.get("sampling", {}).get(
             "source_cells", ["2d/g02", "2d/g05", "2d/g08"]
         )
-    }
+    )
+    # Coverage cursors are scene-specific: the sampler identity includes the
+    # scene id and proposal-catalog fingerprint. Keep one cursor map per
+    # scene so moving to the next scene cannot reuse the previous scene's
+    # state, while revisits remain deterministic and resumable.
+    coverage_states_by_scene: dict[
+        str, dict[str, DeterministicCoverageState | None]
+    ] = {}
     last: dict[str, Any] = {}
     for update in range(1, int(updates) + 1):
         scene_id = scene_ids[(update - 1) % len(scene_ids)]
         if scene_id not in scene_cache:
             scene_cache[scene_id] = _load_scene(scene_id, cfg)
         scene = scene_cache[scene_id]
+        coverage_states = coverage_states_by_scene.setdefault(
+            scene_id, {cell: None for cell in source_cells}
+        )
         points_np = build_scene_visit_input(
             scene=scene,
             epoch=update - 1,
@@ -275,9 +285,7 @@ def _one_step(cfg: Mapping[str, Any], *, updates: int, output: Path) -> dict[str
             epoch=update - 1,
             seed=seed,
             points=points,
-            cells=cfg.get("sampling", {}).get(
-                "source_cells", ["2d/g02", "2d/g05", "2d/g08"]
-            ),
+            cells=source_cells,
             sampling=sampling,
             coverage_states=coverage_states,
         )
