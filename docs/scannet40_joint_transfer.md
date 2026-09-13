@@ -22,7 +22,7 @@ PY=/cluster/work/igp_psr/nedela/litept-env/bin/python
 CFG=configs/evaluation/scannet40_agile3d_joint_v1.yaml
 $PY scripts/evaluation/run_scannet40_joint.py --config "$CFG" --mode freeze
 $PY scripts/evaluation/run_scannet40_joint.py \
-  --config /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry/freeze/resolved_config.yaml \
+  --config /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry2/freeze/resolved_config.yaml \
   --mode prepare
 ```
 
@@ -37,7 +37,7 @@ both model states, optimizer/scaler state and all RNG state.
 Submit only the one requested arm after the freeze/prepare preflight:
 
 ```bash
-ROOT=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry
+ROOT=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry2
 PROV="$ROOT/freeze/provenance.json"
 export JOINT_CONFIG="$ROOT/freeze/resolved_config.yaml"
 export JOINT_SOURCE_ARCHIVE="$ROOT/freeze/$(basename "$(jq -r .source_archive "$PROV")")"

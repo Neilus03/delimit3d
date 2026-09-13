@@ -4,12 +4,12 @@
 # JOINT_PYTHON set to the frozen resolved paths.
 #SBATCH --job-name=delimit3d-s40-joint
 #SBATCH --partition=gpuhe.120h
-#SBATCH --gres=gpu:rtx_4090:1
+#SBATCH --gpus=rtx_4090:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8G
 #SBATCH --time=5-00:00:00
-#SBATCH --output=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry/slurm-%j.out
-#SBATCH --error=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry/slurm-%j.err
+#SBATCH --output=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry2/slurm-%j.out
+#SBATCH --error=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry2/slurm-%j.err
 
 set -euo pipefail
 
