@@ -16,7 +16,7 @@ artifact=/cluster/work/igp_psr/nedela/delimit3d_sonata_rgbn6_256_v1
 archive_root=${artifact}/source_snapshots
 archive=${archive_root}/delimit3d-${expected_commit}.tar
 snapshot=${archive_root}/delimit3d-${expected_commit}
-config=${SONATA_CONFIG:-${snapshot}/configs/adaptation/sonata_rgbn6_256.example.yaml}
+config=${snapshot}/configs/adaptation/sonata_rgbn6_256.example.yaml
 mode=${1:-preflight}
 
 # The source archive is made from the committed setup only; unrelated existing
@@ -28,9 +28,10 @@ if [ ! -s "${archive}" ]; then
   git -C "${repo}" archive --format=tar "${expected_commit}" > "${archive}"
 fi
 archive_sha=$(sha256sum "${archive}" | awk '{print $1}')
-if [ ! -f "${snapshot}/scripts/adaptation/run_sonata_adaptation.py" ]; then
+if [ ! -f "${snapshot}/.snapshot_complete" ]; then
   mkdir -p "${snapshot}"
   tar -xf "${archive}" -C "${snapshot}"
+  touch "${snapshot}/.snapshot_complete"
 fi
 
 export PYTHONPATH="${snapshot}/src:/cluster/work/igp_psr/nedela/sonata:${PYTHONPATH:-}"
