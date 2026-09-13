@@ -228,9 +228,21 @@ def _one_step(cfg: Mapping[str, Any], *, updates: int, output: Path) -> dict[str
         raise RuntimeError("Training split is empty")
     seed = int(cfg.get("experiment", {}).get("seed", 20260911))
     optimizer_cfg = cfg.get("optimizer", {})
+    encoder_params = [
+        parameter for name, parameter in model.named_parameters()
+        if name.startswith("encoder.") and parameter.requires_grad
+    ]
+    head_params = [
+        parameter for name, parameter in model.named_parameters()
+        if not name.startswith("encoder.") and parameter.requires_grad
+    ]
+    if not encoder_params or not head_params:
+        raise RuntimeError("Sonata optimizer parameter groups are unexpectedly empty")
     optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=float(optimizer_cfg.get("lr", 1e-4)),
+        [
+            {"params": encoder_params, "lr": float(optimizer_cfg.get("backbone_lr", 1e-4))},
+            {"params": head_params, "lr": float(optimizer_cfg.get("head_lr", 3e-3))},
+        ],
         weight_decay=float(optimizer_cfg.get("weight_decay", 1e-4)),
     )
     initial_hash = _state_hash(model.encoder)

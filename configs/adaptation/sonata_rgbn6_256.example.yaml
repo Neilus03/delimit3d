@@ -45,7 +45,8 @@ sampling:
 
 optimizer:
   name: AdamW
-  lr: 0.0001
+  backbone_lr: 0.0001
+  head_lr: 0.003
   weight_decay: 0.0001
   gradient_clip_norm: 0.1
 
