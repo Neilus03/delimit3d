@@ -344,6 +344,9 @@ def query_metrics(
     points: np.ndarray,
     point_instance: np.ndarray,
     point_semantic: np.ndarray,
+    target_mask: np.ndarray,
+    same_class_mask: np.ndarray,
+    different_class_mask: np.ndarray,
     target_instance: int,
     target_semantic: int,
     query_index: int,
@@ -355,18 +358,16 @@ def query_metrics(
     candidate = np.ones(n, dtype=bool)
     candidate[int(query_index)] = False
     score = unit @ unit[int(query_index)]
-    target = (point_instance == int(target_instance)) & candidate
+    # Use each manifest object's raw mesh mask as the retrieval target.  The
+    # point_instance array is a deterministic first-claim label map used for
+    # kNN purity; on overlapping masks it can erase a later object's points,
+    # which must not make that valid query appear to have zero positives.
+    target = np.asarray(target_mask, dtype=bool) & candidate
     same_class_distractor = (
-        (point_semantic == int(target_semantic))
-        & (point_instance >= 0)
-        & (point_instance != int(target_instance))
-        & candidate
+        np.asarray(same_class_mask, dtype=bool) & ~target & candidate
     )
     different_class = (
-        (point_instance >= 0)
-        & (point_semantic != int(target_semantic))
-        & (point_instance != int(target_instance))
-        & candidate
+        np.asarray(different_class_mask, dtype=bool) & ~target & candidate
     )
     candidate_indices = np.flatnonzero(candidate)
     candidate_scores = score[candidate]
@@ -588,14 +589,27 @@ def evaluate_scene(
         if instance not in masks:
             continue
         semantic = int(semantics[instance])
+        target_mask = masks[instance]
+        same_class_mask = np.zeros_like(target_mask, dtype=bool)
+        different_class_mask = np.zeros_like(target_mask, dtype=bool)
+        for other_instance, other_mask in masks.items():
+            if other_instance == instance:
+                continue
+            if int(semantics[other_instance]) == semantic:
+                same_class_mask |= other_mask
+            else:
+                different_class_mask |= other_mask
         for query in obj.get("queries", []):
             query = int(query)
             if not masks[instance][query]:
                 continue
             query_rows.append(query_metrics(
                 unit=unit, points=shifted, point_instance=point_instance,
-                point_semantic=point_semantic, target_instance=instance,
-                target_semantic=semantic, query_index=query,
+                point_semantic=point_semantic, target_mask=target_mask,
+                same_class_mask=same_class_mask,
+                different_class_mask=different_class_mask,
+                target_instance=instance, target_semantic=semantic,
+                query_index=query,
                 seed=stable_seed(feature_seed, record["scene"], instance, query),
             ))
     scene_query = {}
