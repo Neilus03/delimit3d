@@ -10,6 +10,7 @@ validation scene, and then applies the same official MO/SO click protocol.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import hashlib
 import json
@@ -470,6 +471,8 @@ def load_evaluation_manifest(config: Mapping[str, Any]) -> dict[str, Any]:
     payload, _ = _load_canonical_json(root / "evaluation_manifest.json", "manifest_sha256")
     if payload.get("schema") != EVALUATION_MANIFEST_SCHEMA:
         raise ValueError("evaluation manifest schema mismatch")
+    if payload.get("experiment_id") != EXPERIMENT:
+        raise ValueError("evaluation manifest experiment mismatch")
     _path, training_manifest = _load_training_manifest(config)
     if payload.get("training_manifest_sha256") != training_manifest["manifest_sha256"]:
         raise ValueError("evaluation manifest training selection drift")
@@ -987,8 +990,8 @@ def evaluate_panel(
         "mode": mode,
         "units": completed,
         "count": len(completed),
-        "expected_count": len(manifest["panels"][mode]),
-        "complete": len(completed) == len(manifest["panels"][mode]),
+        "expected_count": int(manifest["panels"][mode]),
+        "complete": len(completed) == int(manifest["panels"][mode]),
         "metrics": {
             metric: float(np.mean([row["metrics"][metric] for row in completed]))
             for metric in completed[0]["metrics"]
@@ -1008,6 +1011,7 @@ def write_status(root: Path, **values: Any) -> None:
     dump(root / "workers" / "status.json", payload)
 
 
+@contextlib.contextmanager
 def heartbeat(config: Mapping[str, Any]):
     root = root_of(config)
     directory = root / "workers"
