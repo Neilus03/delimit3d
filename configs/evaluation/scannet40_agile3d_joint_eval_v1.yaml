@@ -14,7 +14,7 @@ paths:
   processed_root: /cluster/work/igp_psr/nedela/scannet_processed
   geometry_audit: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1/protocol_audit/scene_geometry_audit_parallel.jsonl
   litept_root: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry3/freeze/litept_source
-  output_root: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_eval2
+  output_root: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_eval3
 
 encoder:
   name: Delimit3D-trained LitePT-S*

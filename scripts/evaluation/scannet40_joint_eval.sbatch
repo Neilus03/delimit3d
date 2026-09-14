@@ -6,10 +6,10 @@
 #SBATCH --partition=gpuhe.120h
 #SBATCH --gpus=rtx_4090:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem-per-cpu=8G
+#SBATCH --mem-per-cpu=2G
 #SBATCH --time=2-00:00:00
-#SBATCH --output=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_eval2/slurm-%j.out
-#SBATCH --error=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_eval2/slurm-%j.err
+#SBATCH --output=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_eval3/slurm-%j.out
+#SBATCH --error=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_eval3/slurm-%j.err
 
 set -euo pipefail
 
