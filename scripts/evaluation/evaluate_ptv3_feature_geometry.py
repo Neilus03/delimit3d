@@ -797,6 +797,19 @@ def aggregate(config: Mapping[str, Any]) -> dict[str, Any]:
             "paired_bootstrap_ci95_high": high,
         }
     gates = config.get("gate", {})
+    adapted_update = None
+    adapted_report_path = root / "delimit3d_feature_report.json"
+    if adapted_report_path.exists():
+        try:
+            adapted_report = json.loads(adapted_report_path.read_text())
+            adapted_update = adapted_report.get("checkpoint", {}).get("checkpoint_meta", {}).get("checkpoint_update")
+        except Exception:
+            adapted_update = None
+    comparison_label = (
+        f"public PTv3 versus {int(adapted_update)}-update Delimit3D PTv3"
+        if adapted_update is not None else
+        "public PTv3 versus Delimit3D PTv3"
+    )
     ap = metrics["ap"]
     margin = metrics["same_class_margin"]
     fp = metrics["same_class_fp_at_0010bp"]
@@ -822,7 +835,8 @@ def aggregate(config: Mapping[str, Any]) -> dict[str, Any]:
     decision = "green" if green else ("amber" if supportive >= 2 else "red")
     report = {
         "schema": SCHEMA,
-        "comparison": "public PTv3 versus 256-update Delimit3D PTv3",
+        "comparison": comparison_label,
+        "adapted_checkpoint_update": int(adapted_update) if adapted_update is not None else None,
         "feature_level_only": True,
         "scenes": scenes,
         "metrics": metrics,
