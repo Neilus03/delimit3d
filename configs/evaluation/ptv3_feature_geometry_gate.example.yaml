@@ -1,0 +1,58 @@
+
+# Feature-level gate before committing to full AGILE3D decoder training.
+# This compares public PTv3 with the completed 256-update Delimit3D PTv3
+# on the same frozen ScanNet++ validation scenes and fixed point queries.
+experiment_id: delimit3d_ptv3_feature_geometry_gate_v1
+repo_commit: auto
+seed: 20260911
+
+paths:
+  # Existing frozen 50-scene ScanNet++ validation bundle.  It is used only as
+  # an immutable data/GT source; GT never enters the encoder.
+  val_bundle: /cluster/work/igp_psr/nedela/chorus_scannetpp_prompt_20260910_r1
+  output_root: /cluster/work/igp_psr/nedela/delimit3d_ptv3_feature_geometry_gate_v1
+
+model:
+  ptv3_root: /home/nedela/delimit3d_ptv3_pf_v1/external/PointTransformerV3
+  ptv3_source_commit: 3229e9b7de1770c8ad17c316f8e349982de509f8
+  grid_size: 0.02
+  enable_flash: true
+  shuffle_orders: true
+  feature_stage: dense_point_decoder_output_64d
+  input_contract: RGBN6
+  coordinate_contract: center_xy_ground_z
+
+training:
+  updates: 256
+
+arms:
+  public:
+    checkpoint: /home/nedela/delimit3d_ptv3_pf_v1/external/ptv3_scannet_model_best.pth
+    checkpoint_sha256: 40206376ff2f83f48e4d1bc27d5c5d96be7c87c5d11eb45fe7be501959040e7f
+  delimit3d:
+    checkpoint: /cluster/work/igp_psr/nedela/delimit3d_ptv3_rgbn6_256_matched_pf_v4/checkpoint_u000256.pt
+    checkpoint_sha256: auto
+
+metrics:
+  geometry_sample_points: 20000
+  knn_candidates: 8192
+  save_feature_samples: true
+  top_fraction_metrics: [0.001, 0.01, 0.05, 0.10]
+  paired_unit: scene
+  gt_used_for: query_selection_and_metric_labels_only
+
+bootstrap:
+  samples: 10000
+  seed: 20260911
+
+gate:
+  # Green authorizes the full frozen-backbone AGILE3D decoder experiment.
+  min_ap_delta: 0.02
+  min_same_class_margin_delta: 0.02
+  max_same_class_fp_increase: 0.02
+  max_semantic_purity_drop: 0.05
+
+wait:
+  poll_seconds: 60
+  run_on_gpus: [0, 1]
+  expected_scene_count: 50
