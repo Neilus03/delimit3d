@@ -658,6 +658,8 @@ def evaluate(config: Mapping[str, Any], arm: str, device_name: str) -> dict[str,
     if device.type == "cuda":
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA requested but unavailable")
+        if device.index is None:
+            device = torch.device("cuda:0")
         torch.cuda.set_device(device)
     encoder, checkpoint_meta = load_encoder(config, arm, device)
     initial_hash = encoder_state_sha256(encoder)
