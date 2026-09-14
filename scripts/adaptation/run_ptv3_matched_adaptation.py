@@ -98,10 +98,17 @@ def _visit_and_plan(
     )
     points = torch.from_numpy(visit.points).to(device)
     features = torch.from_numpy(visit.features).to(device)
+    # The coverage cursor is persisted across revisits of a scene.  Its
+    # sampler identity must therefore use a scene-stable seed; tying it to
+    # the global update makes the first scene wrap fail with an identity
+    # mismatch after one pass through the rank-local pool.  The update remains
+    # part of the separate forward seed below, so optimization randomness is
+    # still update-specific.
+    plan_seed = stable_seed(seed, scene.scene_id, "matched-plan")
     plan = build_ptv3_v2_plan(
         scene=scene,
         epoch=int(scene_epoch),
-        seed=int(stable_seed(seed, scene.scene_id, update, "matched-plan")),
+        seed=int(plan_seed),
         points=points,
         cells=cells,
         sampling=sampling,
