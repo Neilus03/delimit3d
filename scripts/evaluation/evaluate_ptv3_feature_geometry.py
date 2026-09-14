@@ -237,11 +237,13 @@ def adapted_backbone_state(payload: Any) -> dict[str, torch.Tensor]:
 
 
 def encoder_state_sha256(model: torch.nn.Module) -> str:
+    # The adaptation checkpoint records the runner's parameter-only hash.
+    # Keep this definition identical so buffers cannot create a false drift.
     digest = hashlib.sha256()
-    for name, tensor in sorted(model.state_dict().items()):
+    for name, parameter in sorted(model.named_parameters()):
         digest.update(name.encode())
-        digest.update(str(tuple(tensor.shape)).encode())
-        digest.update(tensor.detach().cpu().contiguous().numpy().tobytes())
+        digest.update(str(tuple(parameter.shape)).encode())
+        digest.update(parameter.detach().cpu().contiguous().numpy().tobytes())
     return digest.hexdigest()
 
 
