@@ -451,17 +451,17 @@ def build_point_labels(
                 if key not in data.files:
                     raise KeyError(f"{data_path}: missing {key}")
                 indices = np.asarray(data[key], dtype=np.int64)
-            indices = indices[(indices >= 0) & (indices < n)]
-            mask = np.zeros(n, dtype=bool)
-            mask[indices] = True
-            masks[instance] = mask
-            semantic = int(obj.get("semantic_class", -1))
-            semantics[instance] = semantic
-            # The frozen bundle is expected to contain disjoint instances.  If
-            # it does not, retain the first manifest object deterministically.
-            free = mask & (point_instance < 0)
-            point_instance[free] = instance
-            point_semantic[free] = semantic
+        indices = indices[(indices >= 0) & (indices < n)]
+        mask = np.zeros(n, dtype=bool)
+        mask[indices] = True
+        masks[instance] = mask
+        semantic = int(obj.get("semantic_class", -1))
+        semantics[instance] = semantic
+        # The frozen bundle is expected to contain disjoint instances.  If
+        # it does not, retain the first manifest object deterministically.
+        free = mask & (point_instance < 0)
+        point_instance[free] = instance
+        point_semantic[free] = semantic
     return point_instance, point_semantic, masks, semantics
 
 
