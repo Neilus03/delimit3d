@@ -675,6 +675,34 @@ def _amp_context(config: Mapping[str, Any]):
     )
 
 
+def _make_scaler(config: Mapping[str, Any]) -> torch.amp.GradScaler:
+    precision = config["precision"]
+    enabled = bool(precision["amp"])
+    if not enabled:
+        return torch.amp.GradScaler("cuda", enabled=False)
+    initial_scale = float(precision.get("initial_scale", 1.0))
+    growth_interval = int(precision.get("growth_interval", 1_000_000))
+    if initial_scale <= 0.0 or growth_interval <= 0:
+        raise ValueError("precision.initial_scale and growth_interval must be positive")
+    return torch.amp.GradScaler(
+        "cuda",
+        enabled=True,
+        init_scale=initial_scale,
+        growth_interval=growth_interval,
+    )
+
+
+def _float32_loss_outputs(output: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep AMP model execution but make CE/Dice arithmetic numerically stable."""
+    value = dict(output)
+    value["pred_masks"] = output["pred_masks"].float()
+    value["aux_outputs"] = [
+        {"pred_masks": item["pred_masks"].float()}
+        for item in output.get("aux_outputs", [])
+    ]
+    return value
+
+
 def _token_context(
     encoder: torch.nn.Module,
     raw: Mapping[str, Any],
@@ -688,7 +716,7 @@ def _token_context(
     with _amp_context(config):
         output = encoder(coord, features_in)
     tokens = output.scene_tokens
-    scene_xyz = output.scene_xyz.detach()
+    scene_xyz = output.scene_xyz.detach().float()
     inverse = output.inverse_map.detach().cpu()
     representatives = output.representative_indices.detach().cpu()
     del output, coord, features_in
@@ -778,6 +806,33 @@ def _grad_l2(parameters: Sequence[torch.nn.Parameter]) -> float:
     return float(total**0.5)
 
 
+def _gradient_diagnostics(
+    named_parameters: Sequence[tuple[str, torch.nn.Parameter]],
+) -> dict[str, Any]:
+    nonfinite_names: list[str] = []
+    nonfinite_values = 0
+    parameters_with_grad = 0
+    max_abs_finite = 0.0
+    for name, parameter in named_parameters:
+        if parameter.grad is None:
+            continue
+        parameters_with_grad += 1
+        value = parameter.grad.detach().float()
+        finite = torch.isfinite(value)
+        if not bool(finite.all()):
+            nonfinite_names.append(str(name))
+            nonfinite_values += int((~finite).sum().item())
+        if bool(finite.any()):
+            max_abs_finite = max(max_abs_finite, float(value[finite].abs().max().item()))
+    return {
+        "parameters_with_grad": parameters_with_grad,
+        "nonfinite_parameters": nonfinite_names[:32],
+        "nonfinite_parameter_count": len(nonfinite_names),
+        "nonfinite_gradient_values": nonfinite_values,
+        "max_abs_finite_gradient": max_abs_finite,
+    }
+
+
 def _train_one_update(
     encoder: torch.nn.Module,
     decoder: Agile3DClickDecoder,
@@ -813,7 +868,7 @@ def _train_one_update(
     with _amp_context(config):
         output = decoder(tokens, scene_xyz, clicks=clicks, click_times=times)
     loss, details = compute_agile3d_losses(
-        output,
+        _float32_loss_outputs(output),
         target,
         scene_xyz=scene_xyz,
         clicks=clicks,
@@ -828,8 +883,18 @@ def _train_one_update(
     optimizer.zero_grad(set_to_none=True)
     scaler.scale(loss).backward()
     scaler.unscale_(optimizer)
-    encoder_parameters = [parameter for parameter in encoder.parameters() if parameter.requires_grad]
-    decoder_parameters = [parameter for parameter in decoder.parameters() if parameter.requires_grad]
+    encoder_named = [
+        (name, parameter)
+        for name, parameter in encoder.named_parameters()
+        if parameter.requires_grad
+    ]
+    decoder_named = [
+        (name, parameter)
+        for name, parameter in decoder.named_parameters()
+        if parameter.requires_grad
+    ]
+    encoder_parameters = [parameter for _name, parameter in encoder_named]
+    decoder_parameters = [parameter for _name, parameter in decoder_named]
     encoder_grad_norm = _grad_l2(encoder_parameters)
     decoder_grad_norm = _grad_l2(decoder_parameters)
     all_parameters = encoder_parameters + decoder_parameters
@@ -837,7 +902,15 @@ def _train_one_update(
         all_parameters, float(config["optimizer"]["clip_norm"])
     )
     if not np.isfinite(float(clipped_norm.detach().cpu() if torch.is_tensor(clipped_norm) else clipped_norm)):
-        raise FloatingPointError("non-finite joint gradient norm")
+        diagnostics = {
+            "encoder": _gradient_diagnostics(encoder_named),
+            "decoder": _gradient_diagnostics(decoder_named),
+            "amp_scale": float(scaler.get_scale()),
+        }
+        raise FloatingPointError(
+            "non-finite joint gradient norm: "
+            + json.dumps(diagnostics, sort_keys=True)
+        )
     scaler.step(optimizer)
     scaler.update()
     return {
@@ -1163,7 +1236,7 @@ def train(config: Mapping[str, Any], resume: Path | None = None) -> dict[str, An
     encoder_initial_parameter_sha256 = _parameter_hash(encoder)
     decoder_initialization_sha256 = init_report["tensor_state_sha256"]
     optimizer = _make_optimizer(encoder, decoder, config)
-    scaler = torch.amp.GradScaler("cuda", enabled=bool(config["precision"]["amp"]))
+    scaler = _make_scaler(config)
     begin = 0
     if resume is not None:
         checkpoint = torch.load(resolve(resume), map_location="cpu", weights_only=False)
@@ -1208,7 +1281,7 @@ def train(config: Mapping[str, Any], resume: Path | None = None) -> dict[str, An
         dump(root / "startup_gradient_check.json", check)
         del optimizer, scaler
         optimizer = _make_optimizer(encoder, decoder, config)
-        scaler = torch.amp.GradScaler("cuda", enabled=bool(config["precision"]["amp"]))
+        scaler = _make_scaler(config)
 
     stats: list[dict[str, Any]] = []
     start = time.time()

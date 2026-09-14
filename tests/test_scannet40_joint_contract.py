@@ -15,6 +15,8 @@ def test_joint_config_is_single_delimit3d_all_learnable_arm() -> None:
     assert config["encoder_adaptation_uses_scannet_labels"] is True
     assert config["optimizer"]["gpu_count"] == 1
     assert config["optimizer"]["encoder_lr"] == config["optimizer"]["decoder_lr"] == 1.0e-4
+    assert config["precision"]["initial_scale"] == 1.0
+    assert config["precision"]["growth_interval"] == 1000000
 
 
 def test_joint_runner_has_separate_equal_lr_groups_and_full_checkpoints() -> None:
@@ -24,3 +26,5 @@ def test_joint_runner_has_separate_equal_lr_groups_and_full_checkpoints() -> Non
     assert '"encoder_frozen": False' in source
     assert "update % 250 == 0" in source
     assert "encoder_grad_norm" in source
+    assert "_float32_loss_outputs" in source
+    assert "_gradient_diagnostics" in source

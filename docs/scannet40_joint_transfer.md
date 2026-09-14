@@ -22,7 +22,7 @@ PY=/cluster/work/igp_psr/nedela/litept-env/bin/python
 CFG=configs/evaluation/scannet40_agile3d_joint_v1.yaml
 $PY scripts/evaluation/run_scannet40_joint.py --config "$CFG" --mode freeze
 $PY scripts/evaluation/run_scannet40_joint.py \
-  --config /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry2/freeze/resolved_config.yaml \
+  --config /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry3/freeze/resolved_config.yaml \
   --mode prepare
 ```
 
@@ -37,7 +37,7 @@ both model states, optimizer/scaler state and all RNG state.
 Submit only the one requested arm after the freeze/prepare preflight:
 
 ```bash
-ROOT=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry2
+ROOT=/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_retry3
 PROV="$ROOT/freeze/provenance.json"
 export JOINT_CONFIG="$ROOT/freeze/resolved_config.yaml"
 export JOINT_SOURCE_ARCHIVE="$ROOT/freeze/$(basename "$(jq -r .source_archive "$PROV")")"
@@ -46,6 +46,12 @@ export JOINT_PYTHON=/cluster/work/igp_psr/nedela/litept-env/bin/python
 sbatch --test-only scripts/evaluation/scannet40_joint.sbatch
 sbatch scripts/evaluation/scannet40_joint.sbatch
 ```
+
+The joint AMP path keeps model execution in float16 but computes the
+cross-entropy/Dice loss in float32. It begins with a unit loss scale and a
+long growth interval because the first encoder+decoder backward pass can
+overflow at the default GradScaler scale on a 24 GB RTX 4090; this is
+recorded in the frozen precision configuration.
 
 The training report and final checkpoint are under
 `$ROOT/delimit3d/`. A nonzero encoder gradient and a changed encoder
