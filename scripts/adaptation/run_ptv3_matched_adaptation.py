@@ -191,13 +191,15 @@ def _aggregate(
         raise RuntimeError(f"global update {update} retained zero valid scenes")
     names = (
         "loss",
+        "loss_final_dec0",
+        "loss_multiscale",
         "cosine_gap",
         "positive_cosine_mean",
         "negative_cosine_mean",
         "hardest_negative_ranking_accuracy",
     )
     out = {
-        name: sum(float(record[name]) for record in valid_records)
+        name: sum(float(record.get(name, 0.0)) for record in valid_records)
         / float(len(valid_records))
         for name in names
     }
@@ -219,6 +221,9 @@ def _aggregate(
         ),
         "requested_proposal_count": int(world * spr * pps),
         **out,
+        "multiscale_loss_scale": sum(
+            float(record.get("multiscale_loss_scale", 0.0)) for record in valid_records
+        ) / float(len(valid_records)),
         "temperature": sum(
             float(record["temperature"]) for record in valid_records
         ) / float(len(valid_records)),
@@ -407,6 +412,8 @@ def train(config: Mapping[str, Any], *, updates_override: int | None = None, smo
                     batch=None,
                     frame_groups=plan.groups,
                     seed=forward_seed,
+                    supervision_step=update,
+                    supervision_total_steps=updates,
                 )
                 loss = result["loss_total"]
                 if not torch.isfinite(loss):
@@ -418,6 +425,9 @@ def train(config: Mapping[str, Any], *, updates_override: int | None = None, smo
                 "rank": rank,
                 "scene_id": scene_id,
                 "loss": float(loss.detach()),
+                "loss_final_dec0": float(result.get("loss_final_dec0", loss.detach())),
+                "loss_multiscale": float(result.get("loss_multiscale", 0.0)),
+                "multiscale_loss_scale": float(result.get("multiscale_loss_scale", 0.0)),
                 "cosine_gap": float(result.get("cosine_gap", 0.0)),
                 "positive_cosine_mean": float(
                     result.get("positive_cosine_mean", 0.0)
@@ -445,6 +455,7 @@ def train(config: Mapping[str, Any], *, updates_override: int | None = None, smo
                 ),
                 "forward_seed": int(forward_seed),
                 "optimization_valid": True,
+                "multiscale": result.get("multiscale", {}),
             })
 
         local_valid = torch.tensor(
@@ -571,4 +582,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

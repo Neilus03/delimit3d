@@ -224,6 +224,15 @@ def _load_runtime(config: Mapping[str, Any]):
         projection_hidden_dim=int(model_config.get("projection_hidden_dim", 128)),
         enable_flash=bool(model_config.get("enable_flash", True)),
         shuffle_orders=bool(model_config.get("shuffle_orders", True)),
+        multiscale_supervision=bool(
+            model_config.get("multiscale_supervision", False)
+        ),
+        multiscale_loss_weight=float(
+            model_config.get("multiscale_loss_weight", 0.4)
+        ),
+        multiscale_warmup_updates=int(
+            model_config.get("multiscale_warmup_updates", 32)
+        ),
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
@@ -586,4 +595,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import importlib
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -32,7 +32,9 @@ from delimit3d.losses.partfield_contrastive_loss import PartFieldContrastiveCrit
 from delimit3d.training.adaptation import (
     ContrastiveProjectionHead,
     SceneSource,
+    remap_contrastive_batch_to_level,
     normalize_hierarchy_frame_groups,
+    zero_loss_touching_module_parameters,
 )
 
 
@@ -45,6 +47,24 @@ PTV3_PUBLIC_CHECKPOINT_SHA256 = (
 PTV3_INPUT_CHANNELS = 6
 PTV3_DEFAULT_GRID_SIZE = 0.02
 PTV3_DEFAULT_OUTPUT_DIM = 64
+
+# These are the native PTv3 decoder stages at the same coarse-to-fine
+# resolutions used by the LitePT auxiliary recipe.  The final dec0 objective
+# remains the primary loss; each 2D mask granularity gets one scale-matched
+# auxiliary objective.
+PTV3_MULTISCALE_LEVEL_NAMES = ("dec3", "dec2", "dec1")
+PTV3_MULTISCALE_LEVEL_LOSS_WEIGHTS = {
+    "dec3": 0.20,
+    "dec2": 0.30,
+    "dec1": 0.50,
+}
+PTV3_MULTISCALE_ROUTE_BY_GRANULARITY = {
+    "g02": "dec1",
+    "g05": "dec2",
+    "g08": "dec3",
+}
+PTV3_MULTISCALE_AUXILIARY_WEIGHT = 0.4
+PTV3_MULTISCALE_WARMUP_UPDATES = 32
 
 # These values mirror Pointcept's public ScanNet PT-v3m1-0-base config.  Keep
 # them in one JSON-safe mapping so the resolved experiment records the exact
@@ -93,6 +113,9 @@ class PTv3FeatureOutput:
     token_xyz: torch.Tensor  # [N_voxel, 3]
     token_grid: torch.Tensor  # [N_voxel, 3]
     representative_indices: torch.Tensor  # [N_voxel]
+    hierarchy_tokens: Mapping[str, torch.Tensor] = field(default_factory=dict)
+    hierarchy_xyz: Mapping[str, torch.Tensor] = field(default_factory=dict)
+    hierarchy_raw_maps: Mapping[str, torch.Tensor] = field(default_factory=dict)
 
 
 def representative_first_voxelize(
@@ -206,6 +229,7 @@ class PTv3Encoder(nn.Module):
         grid_size: float = PTV3_DEFAULT_GRID_SIZE,
         enable_flash: bool = True,
         shuffle_orders: bool = True,
+        capture_hierarchy: bool = False,
     ) -> None:
         super().__init__()
         constructor = dict(PTV3_DEFAULT_CONFIG)
@@ -225,8 +249,93 @@ class PTv3Encoder(nn.Module):
         self.grid_size = float(grid_size)
         self.input_channels = PTV3_INPUT_CHANNELS
         self.output_dim = PTV3_DEFAULT_OUTPUT_DIM
+        self.capture_hierarchy = bool(capture_hierarchy)
+        self._active_hierarchy_capture: dict[str, dict[str, torch.Tensor | None]] | None = None
+        self._hierarchy_hook_handles: list[Any] = []
         if int(constructor["in_channels"]) != self.input_channels:
             raise RuntimeError("PTv3 input channel contract drifted from RGBN6")
+        if self.capture_hierarchy:
+            # PTv3's public implementation keeps the point hierarchy in named
+            # enc/dec PointSequential modules.  Hooks let us expose those
+            # tensors without modifying the external upstream checkout.
+            for stage in ("enc0", "enc1", "enc2", "enc3", "enc4"):
+                module = getattr(self.backbone.enc, stage, None)
+                if module is None:
+                    raise RuntimeError(f"PTv3 hierarchy stage missing: {stage}")
+                self._hierarchy_hook_handles.append(
+                    module.register_forward_hook(self._make_hierarchy_hook(stage))
+                )
+            for stage in ("dec3", "dec2", "dec1", "dec0"):
+                module = getattr(self.backbone.dec, stage, None)
+                if module is None:
+                    raise RuntimeError(f"PTv3 hierarchy stage missing: {stage}")
+                self._hierarchy_hook_handles.append(
+                    module.register_forward_hook(self._make_hierarchy_hook(stage))
+                )
+
+    def _make_hierarchy_hook(self, stage: str):
+        def hook(_module: nn.Module, _inputs: tuple[Any, ...], output: Any) -> None:
+            if self._active_hierarchy_capture is None:
+                return
+            if not isinstance(output, Mapping) or "feat" not in output:
+                raise RuntimeError(f"PTv3 stage {stage} did not return a Point")
+            feature = output["feat"]
+            coord = output.get("coord")
+            if not isinstance(feature, torch.Tensor) or not isinstance(coord, torch.Tensor):
+                raise RuntimeError(f"PTv3 stage {stage} has invalid feature/coord tensors")
+            # Clone keeps the intermediate tensor stable when a later
+            # unpooling step mutates the Point object.  clone() preserves the
+            # autograd graph, which is required for auxiliary supervision.
+            self._active_hierarchy_capture[stage] = {
+                "feat": feature.clone(),
+                "coord": coord.clone(),
+                "pooling_inverse": (
+                    output.get("pooling_inverse").clone()
+                    if isinstance(output.get("pooling_inverse"), torch.Tensor)
+                    else None
+                ),
+            }
+
+        return hook
+
+    @staticmethod
+    def _hierarchy_maps(
+        *,
+        raw_to_token: torch.Tensor,
+        captured: Mapping[str, Mapping[str, torch.Tensor | None]],
+    ) -> dict[str, torch.Tensor]:
+        """Compose PTv3 pooling inverses into raw-point-to-stage maps."""
+
+        n_tokens = int(raw_to_token.max().item()) + 1
+        raw_stage_maps: dict[str, torch.Tensor] = {
+            "enc0": raw_to_token,
+        }
+        # ``token_map`` always has one entry per enc0 token.  Each pooling
+        # inverse maps the previous stage's token index into the next stage,
+        # so it can be composed repeatedly before expanding back to raw points.
+        token_map = torch.arange(
+            n_tokens, device=raw_to_token.device, dtype=torch.long
+        )
+        for index in range(1, 5):
+            stage = f"enc{index}"
+            inverse = captured[stage].get("pooling_inverse")
+            if not isinstance(inverse, torch.Tensor):
+                raise RuntimeError(f"PTv3 stage {stage} has no pooling inverse")
+            inverse = inverse.long()
+            if inverse.ndim != 1 or int(inverse.shape[0]) < int(token_map.max().item()) + 1:
+                raise RuntimeError(
+                    f"PTv3 pooling inverse shape drift at {stage}: "
+                    f"{tuple(inverse.shape)} vs token_map_max={int(token_map.max().item())}"
+                )
+            token_map = inverse[token_map]
+            raw_stage_maps[stage] = token_map[raw_to_token]
+        # Decoder stage dec{s} returns to the token set of encoder stage s.
+        return {
+            "dec0": raw_stage_maps["enc0"],
+            "dec1": raw_stage_maps["enc1"],
+            "dec2": raw_stage_maps["enc2"],
+            "dec3": raw_stage_maps["enc3"],
+        }
 
     def forward(
         self,
@@ -259,7 +368,13 @@ class PTv3Encoder(nn.Module):
             ),
             "grid_size": float(self.grid_size),
         }
-        point = self.backbone(data)
+        if self.capture_hierarchy:
+            self._active_hierarchy_capture = {}
+        try:
+            point = self.backbone(data)
+        finally:
+            captured = self._active_hierarchy_capture
+            self._active_hierarchy_capture = None
         token_features = point.feat
         if token_features.ndim != 2 or int(token_features.shape[0]) != n_tokens:
             raise RuntimeError(
@@ -269,6 +384,33 @@ class PTv3Encoder(nn.Module):
         point_features = token_features[raw_to_token]
         if int(point_features.shape[0]) != int(points.shape[0]):
             raise RuntimeError("PTv3 raw-point feature cardinality mismatch")
+        hierarchy_tokens: dict[str, torch.Tensor] = {}
+        hierarchy_xyz: dict[str, torch.Tensor] = {}
+        hierarchy_raw_maps: dict[str, torch.Tensor] = {}
+        if self.capture_hierarchy:
+            if captured is None:
+                raise RuntimeError("PTv3 hierarchy capture returned no data")
+            required = set(("enc0", "enc1", "enc2", "enc3", "enc4", "dec3", "dec2", "dec1", "dec0"))
+            if not required.issubset(captured):
+                raise RuntimeError(
+                    "PTv3 hierarchy capture incomplete: "
+                    f"missing={sorted(required.difference(captured))}"
+                )
+            stage_maps = self._hierarchy_maps(
+                raw_to_token=raw_to_token,
+                captured=captured,
+            )
+            for stage in ("dec3", "dec2", "dec1", "dec0"):
+                feat = captured[stage].get("feat")
+                coord = captured[stage].get("coord")
+                raw_map = stage_maps[stage]
+                if not isinstance(feat, torch.Tensor) or not isinstance(coord, torch.Tensor):
+                    raise RuntimeError(f"PTv3 stage {stage} tensors are unavailable")
+                if int(raw_map.max().item()) >= int(feat.shape[0]):
+                    raise RuntimeError(f"PTv3 stage {stage} raw map exceeds token count")
+                hierarchy_tokens[stage] = feat
+                hierarchy_xyz[stage] = coord
+                hierarchy_raw_maps[stage] = raw_map
         return PTv3FeatureOutput(
             point_features=point_features,
             token_features=token_features,
@@ -276,6 +418,9 @@ class PTv3Encoder(nn.Module):
             token_xyz=point.coord,
             token_grid=token_grid,
             representative_indices=representatives,
+            hierarchy_tokens=hierarchy_tokens,
+            hierarchy_xyz=hierarchy_xyz,
+            hierarchy_raw_maps=hierarchy_raw_maps,
         )
 
 
@@ -356,6 +501,9 @@ class PTv3ContrastiveModel(nn.Module):
         projection_hidden_dim: int = 128,
         enable_flash: bool = True,
         shuffle_orders: bool = True,
+        multiscale_supervision: bool = False,
+        multiscale_loss_weight: float = PTV3_MULTISCALE_AUXILIARY_WEIGHT,
+        multiscale_warmup_updates: int = PTV3_MULTISCALE_WARMUP_UPDATES,
     ) -> None:
         super().__init__()
         self.encoder = PTv3Encoder(
@@ -364,13 +512,43 @@ class PTv3ContrastiveModel(nn.Module):
             grid_size=grid_size,
             enable_flash=enable_flash,
             shuffle_orders=shuffle_orders,
+            capture_hierarchy=multiscale_supervision,
         )
+        self.multiscale_supervision = bool(multiscale_supervision)
+        self.multiscale_loss_weight = float(multiscale_loss_weight)
+        self.multiscale_warmup_updates = int(multiscale_warmup_updates)
+        if self.multiscale_loss_weight < 0.0:
+            raise ValueError("multiscale_loss_weight must be non-negative")
+        if self.multiscale_warmup_updates < 0:
+            raise ValueError("multiscale_warmup_updates must be non-negative")
         self.projector = ContrastiveProjectionHead(
             self.encoder.output_dim, projection_hidden_dim, projection_dim
         )
         self.criterion = PartFieldContrastiveCriterion(
             temperature=0.07, learnable_temperature=True
         )
+        self.multiscale_projectors = nn.ModuleDict()
+        self.multiscale_criteria = nn.ModuleDict()
+        if self.multiscale_supervision:
+            stage_channels = {"dec3": 256, "dec2": 128, "dec1": 64}
+            self.multiscale_projectors.update(
+                {
+                    stage: ContrastiveProjectionHead(
+                        stage_channels[stage], projection_hidden_dim, projection_dim
+                    )
+                    for stage in PTV3_MULTISCALE_LEVEL_NAMES
+                }
+            )
+            self.multiscale_criteria.update(
+                {
+                    stage: PartFieldContrastiveCriterion(
+                        temperature=0.07,
+                        learnable_temperature=True,
+                        symmetric_feature_hard_mining=False,
+                    )
+                    for stage in PTV3_MULTISCALE_LEVEL_NAMES
+                }
+            )
 
     @property
     def feature_dim(self) -> int:
@@ -384,6 +562,8 @@ class PTv3ContrastiveModel(nn.Module):
         batch: Any,
         seed: int,
         frame_groups: Sequence[Any] | None = None,
+        supervision_step: int | None = None,
+        supervision_total_steps: int | None = None,
     ) -> dict[str, Any]:
         encoded = self.encoder(points=points, features=features, seed=int(seed))
         groups = normalize_hierarchy_frame_groups(
@@ -395,10 +575,87 @@ class PTv3ContrastiveModel(nn.Module):
         ]
         if not results:
             raise RuntimeError("PTv3 Delimit3D plan retained no contrastive groups")
-        loss = torch.stack([item["loss_total"] for item in results]).mean()
+        final_loss = torch.stack([item["loss_total"] for item in results]).mean()
+        auxiliary_loss = final_loss.new_zeros(())
+        auxiliary_records: dict[str, list[dict[str, Any]]] = {
+            stage: [] for stage in PTV3_MULTISCALE_LEVEL_NAMES
+        }
+        auxiliary_tensors: list[torch.Tensor] = []
+        if self.multiscale_supervision:
+            for group in groups:
+                granularity = str(group.cell).split("/", 1)[-1]
+                stage = PTV3_MULTISCALE_ROUTE_BY_GRANULARITY.get(granularity)
+                if stage is None:
+                    raise RuntimeError(
+                        f"No PTv3 multiscale route for source cell {group.cell!r}"
+                    )
+                stage_features = encoded.hierarchy_tokens.get(stage)
+                stage_xyz = encoded.hierarchy_xyz.get(stage)
+                stage_map = encoded.hierarchy_raw_maps.get(stage)
+                if stage_features is None or stage_xyz is None or stage_map is None:
+                    raise RuntimeError(f"PTv3 hierarchy output missing stage {stage}")
+                stage_batch, mapping_stats = remap_contrastive_batch_to_level(
+                    group.batch,
+                    stage_map,
+                )
+                if stage_batch is None:
+                    stage_loss = zero_loss_touching_module_parameters(
+                        stage_features, self.multiscale_criteria[stage]
+                    )
+                    stage_metrics = {
+                        "loss": 0.0,
+                        "cosine_gap": 0.0,
+                        "temperature": float(
+                            self.multiscale_criteria[stage].temperature.detach()
+                        ),
+                        **mapping_stats,
+                    }
+                else:
+                    stage_projected = self.multiscale_projectors[stage](
+                        stage_features
+                    )
+                    stage_result = self.multiscale_criteria[stage](
+                        stage_projected.float(), stage_batch
+                    )
+                    stage_loss = stage_result["loss_total"]
+                    stage_metrics = {
+                        "loss": float(stage_loss.detach()),
+                        "cosine_gap": float(stage_result["cosine_gap"]),
+                        "temperature": float(stage_result["temperature"]),
+                        **mapping_stats,
+                    }
+                auxiliary_tensors.append(stage_loss)
+                auxiliary_records[stage].append(stage_metrics)
+            if auxiliary_tensors:
+                auxiliary_loss = torch.stack(auxiliary_tensors).mean()
+            step = int(supervision_step or 0)
+            total = int(supervision_total_steps or 0)
+            if self.multiscale_warmup_updates == 0:
+                ramp = 1.0
+            else:
+                ramp = min(1.0, max(0.0, float(step) / float(self.multiscale_warmup_updates)))
+            if total and step > total:
+                raise ValueError("supervision_step exceeds supervision_total_steps")
+            auxiliary_scale = self.multiscale_loss_weight * ramp
+        else:
+            auxiliary_scale = 0.0
+        loss = final_loss + auxiliary_scale * auxiliary_loss
+        stage_summary = {
+            stage: {
+                "loss": sum(item["loss"] for item in records) / max(len(records), 1),
+                "cosine_gap": sum(item["cosine_gap"] for item in records) / max(len(records), 1),
+                "temperature": sum(item["temperature"] for item in records) / max(len(records), 1),
+                "group_count": len(records),
+            }
+            for stage, records in auxiliary_records.items()
+        }
         result: dict[str, Any] = {
             "loss_total": loss,
             "loss_contrastive": float(loss.detach()),
+            "loss_final_dec0": float(final_loss.detach()),
+            "loss_multiscale": float(auxiliary_loss.detach()),
+            "multiscale_loss_scale": float(auxiliary_scale),
+            "multiscale": stage_summary,
             "temperature": float(self.criterion.temperature.detach()),
             "cosine_gap": float(
                 sum(float(item["cosine_gap"]) for item in results) / len(results)
@@ -433,4 +690,3 @@ class PTv3ContrastiveModel(nn.Module):
             "point_features": encoded.point_features,
         }
         return result
-
