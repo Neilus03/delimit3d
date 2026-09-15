@@ -161,6 +161,8 @@ def _load_training_provenance(config: Mapping[str, Any]) -> tuple[Path, dict[str
         raise ValueError("training provenance schema mismatch")
     if payload.get("experiment_id") != EXPERIMENT:
         raise ValueError("training provenance experiment mismatch")
+    if payload.get("arm", joint.DEFAULT_ARM) != joint.arm_name(config):
+        raise ValueError("training provenance arm mismatch")
     return path, payload
 
 
@@ -172,6 +174,8 @@ def _load_training_manifest(config: Mapping[str, Any]) -> tuple[Path, dict[str, 
         raise ValueError("training selection manifest schema mismatch")
     if manifest.get("experiment_id") != EXPERIMENT:
         raise ValueError("training selection manifest experiment mismatch")
+    if manifest.get("arm", joint.DEFAULT_ARM) != joint.arm_name(config):
+        raise ValueError("training selection manifest arm mismatch")
     if len(manifest.get("train_scenes", [])) != 1200:
         raise ValueError("training manifest does not cover 1,200 train scenes")
     if len(manifest.get("validation_scenes", [])) != 312:
@@ -194,8 +198,11 @@ def verify_training_artifacts(
     provenance_path, provenance = _load_training_provenance(config)
     manifest_path, manifest = _load_training_manifest(config)
     training_root = resolve(config["paths"]["training_root"])
-    report_path = training_root / "delimit3d" / "train_report.json"
+    arm = joint.arm_name(config)
+    report_path = training_root / arm / "train_report.json"
     report = json.loads(report_path.read_text())
+    if report.get("arm", joint.DEFAULT_ARM) != arm:
+        raise ValueError("joint training report arm mismatch")
     decoder_init = training_root / "decoder_init.pt"
     if file_sha256(decoder_init) != str(config["parent_decoder_initialization_file_sha256"]):
         raise ValueError("training decoder initialization file hash mismatch")
@@ -238,7 +245,7 @@ def verify_training_artifacts(
         payload = joint.torch.load(checkpoint, map_location="cpu", weights_only=False)
         if payload.get("schema") != joint.CHECKPOINT_SCHEMA:
             raise ValueError("joint checkpoint schema mismatch")
-        if payload.get("experiment_id") != EXPERIMENT or payload.get("arm") != "delimit3d":
+        if payload.get("experiment_id") != EXPERIMENT or payload.get("arm") != arm:
             raise ValueError("joint checkpoint identity mismatch")
         if int(payload.get("update", -1)) != 5000:
             raise ValueError("joint checkpoint is not the final 5,000-update checkpoint")
@@ -360,6 +367,7 @@ def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
     provenance = {
         "schema": EVALUATION_SCHEMA,
         "experiment_id": EXPERIMENT,
+        "arm": joint.arm_name(config),
         "repo_commit": source_commit,
         "resolved_config": str(resolved_path),
         "resolved_config_sha256": file_sha256(resolved_path),
@@ -394,6 +402,8 @@ def verify_freeze(config: Mapping[str, Any]) -> dict[str, Any]:
     provenance = json.loads(provenance_path.read_text())
     if provenance.get("schema") != EVALUATION_SCHEMA:
         raise ValueError("evaluation provenance schema mismatch")
+    if provenance.get("arm", joint.DEFAULT_ARM) != joint.arm_name(config):
+        raise ValueError("evaluation provenance arm mismatch")
     if config.get("repo_commit") != provenance.get("repo_commit"):
         raise ValueError("evaluation config commit differs from frozen provenance")
     if file_sha256(resolve(provenance["resolved_config"])) != provenance["resolved_config_sha256"]:
@@ -435,6 +445,7 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
     payload = {
         "schema": EVALUATION_MANIFEST_SCHEMA,
         "experiment_id": EXPERIMENT,
+        "arm": joint.arm_name(config),
         "repo_commit": str(config["repo_commit"]),
         "training": training,
         "training_manifest_sha256": manifest["manifest_sha256"],
@@ -473,6 +484,8 @@ def load_evaluation_manifest(config: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("evaluation manifest schema mismatch")
     if payload.get("experiment_id") != EXPERIMENT:
         raise ValueError("evaluation manifest experiment mismatch")
+    if payload.get("arm", joint.DEFAULT_ARM) != joint.arm_name(config):
+        raise ValueError("evaluation manifest arm mismatch")
     _path, training_manifest = _load_training_manifest(config)
     if payload.get("training_manifest_sha256") != training_manifest["manifest_sha256"]:
         raise ValueError("evaluation manifest training selection drift")
@@ -986,7 +999,7 @@ def evaluate_panel(
     report = {
         "schema": "delimit3d_scannet40_joint_panel_report/v1",
         "experiment_id": EXPERIMENT,
-        "arm": "delimit3d_joint",
+        "arm": f"{joint.arm_name(config)}_joint",
         "mode": mode,
         "units": completed,
         "count": len(completed),
@@ -1118,7 +1131,7 @@ def evaluate(
         result = {
             "schema": EVALUATION_SCHEMA,
             "experiment_id": EXPERIMENT,
-            "arm": "delimit3d_joint",
+            "arm": f"{joint.arm_name(config)}_joint",
             "repo_commit": str(config["repo_commit"]),
             "checkpoint": str(checkpoint_path),
             "checkpoint_sha256": checkpoint_sha256,

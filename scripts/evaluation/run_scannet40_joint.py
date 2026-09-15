@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Train a Delimit3D LitePT encoder and an AGILE3D click decoder jointly.
 
-This is a single-arm extension of the completed ScanNet40 matched decoder
-protocol.  It deliberately reuses that run's frozen episode schedule and
+This is an all-learnable extension of the completed ScanNet40 matched decoder
+protocol.  Each configured arm reuses that run's frozen episode schedule and
 decoder initialization, but recomputes LitePT dec0 features with gradients on
-each update.  No public-LitePT control is launched here.
+each update.
 """
 
 from __future__ import annotations
@@ -41,7 +41,18 @@ EXPERIMENT = "delimit3d_scannet40_agile3d_joint_v1"
 MANIFEST_SCHEMA = "delimit3d_scannet40_agile3d_joint_manifest/v1"
 CHECKPOINT_SCHEMA = "delimit3d_scannet40_agile3d_joint_checkpoint/v1"
 TRAIN_SCHEMA = "delimit3d_scannet40_agile3d_joint_training/v1"
-ARM = "delimit3d"
+DEFAULT_ARM = "delimit3d"
+JOINT_ARMS = ("delimit3d", "public_control_A")
+PUBLIC_ENCODER_CHECKPOINT_SHA256 = (
+    "86408c6371555aeee2a8eda1184b55a411f9748784c275349149b509b661d518"
+)
+
+
+def arm_name(config: Mapping[str, Any]) -> str:
+    value = str(config.get("arm", DEFAULT_ARM))
+    if value not in JOINT_ARMS:
+        raise ValueError(f"unsupported joint arm: {value!r}")
+    return value
 
 
 def _load_train_runtime() -> None:
@@ -216,6 +227,12 @@ def verify_config(config: Mapping[str, Any]) -> None:
         raise ValueError(f"configuration is missing {missing}")
     if str(config["experiment_id"]) != EXPERIMENT:
         raise ValueError("unexpected experiment_id")
+    arm = arm_name(config)
+    checkpoint_sha256 = str(config.get("encoder", {}).get("checkpoint_sha256", ""))
+    if arm == "public_control_A" and checkpoint_sha256 != PUBLIC_ENCODER_CHECKPOINT_SHA256:
+        raise ValueError("public_control_A must use the pinned public LitePT checkpoint")
+    if arm == "delimit3d" and checkpoint_sha256 == PUBLIC_ENCODER_CHECKPOINT_SHA256:
+        raise ValueError("delimit3d arm must not use the public-control initialization")
     if config.get("encoder_adaptation_uses_scannet_labels") is not True:
         raise ValueError("joint encoder training must be explicitly label-supervised")
     if config["encoder"].get("trainable") is not True:
@@ -417,10 +434,11 @@ def freeze(config: Mapping[str, Any]) -> dict[str, Any]:
     encoder_checkpoint = resolve(resolved["encoder"]["checkpoint"])
     encoder_checkpoint_sha = file_sha256(encoder_checkpoint)
     if encoder_checkpoint_sha != str(resolved["encoder"]["checkpoint_sha256"]):
-        raise ValueError("Delimit3D encoder checkpoint hash mismatch")
+        raise ValueError("joint encoder checkpoint hash mismatch")
     provenance = {
         "schema": "delimit3d_scannet40_agile3d_joint_provenance/v1",
         "experiment_id": EXPERIMENT,
+        "arm": arm_name(config),
         "repo_commit": source_commit,
         "resolved_config": str(resolved_path),
         "resolved_config_sha256": file_sha256(resolved_path),
@@ -468,7 +486,9 @@ def verify_freeze(config: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"executing source differs from frozen source: {name}")
     encoder_checkpoint = resolve(config["encoder"]["checkpoint"])
     if file_sha256(encoder_checkpoint) != provenance["encoder_checkpoint_sha256"]:
-        raise ValueError("Delimit3D encoder checkpoint changed")
+        raise ValueError("joint encoder checkpoint changed")
+    if provenance.get("arm", DEFAULT_ARM) != arm_name(config):
+        raise ValueError("joint arm differs from frozen provenance")
     dependency = provenance["litept_dependency"]
     if file_sha256(resolve(dependency["archive"])) != dependency["archive_sha256"]:
         raise ValueError("frozen LitePT dependency archive changed")
@@ -526,6 +546,7 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
     manifest = {
         "schema": MANIFEST_SCHEMA,
         "experiment_id": EXPERIMENT,
+        "arm": arm_name(config),
         "repo_commit": effective_commit(config),
         "parent_manifest_sha256": str(config["parent_manifest_sha256"]),
         "train_scenes": parent["train_scenes"],
@@ -535,6 +556,7 @@ def prepare(config: Mapping[str, Any]) -> dict[str, Any]:
         "train_episodes_sha256": file_sha256(schedule_path),
         "decoder_initialization_path": str(init_path),
         "decoder_initialization": init_report,
+        "encoder_checkpoint_sha256": str(config["encoder"]["checkpoint_sha256"]),
         "protocol": dict(config["protocol"]),
     }
     manifest["manifest_sha256"] = json_sha256(manifest)
@@ -566,6 +588,8 @@ def load_prepared(config: Mapping[str, Any]) -> dict[str, Any]:
     manifest["manifest_sha256"] = expected
     if manifest.get("schema") != MANIFEST_SCHEMA or manifest.get("experiment_id") != EXPERIMENT:
         raise ValueError("joint manifest schema or experiment mismatch")
+    if manifest.get("arm", DEFAULT_ARM) != arm_name(config):
+        raise ValueError("joint manifest arm mismatch")
     if manifest.get("repo_commit") != effective_commit(config):
         raise ValueError("joint manifest commit mismatch")
     if manifest.get("parent_manifest_sha256") != str(config["parent_manifest_sha256"]):
@@ -992,7 +1016,7 @@ def _checkpoint_payload(
     return {
         "schema": CHECKPOINT_SCHEMA,
         "experiment_id": EXPERIMENT,
-        "arm": ARM,
+        "arm": arm_name(config),
         "update": int(update),
         "repo_commit": effective_commit(config),
         "decoder_kwargs": decoder_kwargs(config),
@@ -1049,7 +1073,7 @@ def _validate_resume(
     required = {
         "schema": CHECKPOINT_SCHEMA,
         "experiment_id": EXPERIMENT,
-        "arm": ARM,
+        "arm": arm_name(config),
         "repo_commit": effective_commit(config),
         "decoder_kwargs": decoder_kwargs(config),
         "encoder_checkpoint_sha256": encoder_checkpoint_sha256,
@@ -1253,7 +1277,8 @@ def train(config: Mapping[str, Any], resume: Path | None = None) -> dict[str, An
             encoder_initial_parameter_sha256=encoder_initial_parameter_sha256,
             decoder_initialization_sha256=decoder_initialization_sha256,
         )
-    output = root / ARM
+    arm = arm_name(config)
+    output = root / arm
     output.mkdir(parents=True, exist_ok=True)
     log_path = output / "train_log.jsonl"
     if log_path.exists() and resume is None:
@@ -1303,7 +1328,7 @@ def train(config: Mapping[str, Any], resume: Path | None = None) -> dict[str, An
             row = {
                 "update": int(episode["update"]),
                 "scene": str(episode["scene"]),
-                "arm": ARM,
+                "arm": arm,
                 **values,
                 "seconds": float(time.time() - start),
             }
@@ -1352,7 +1377,7 @@ def train(config: Mapping[str, Any], resume: Path | None = None) -> dict[str, An
     report = {
         "schema": TRAIN_SCHEMA,
         "experiment_id": EXPERIMENT,
-        "arm": ARM,
+        "arm": arm,
         "repo_commit": effective_commit(config),
         "provenance_sha256": file_sha256(root / "freeze" / "provenance.json"),
         "checkpoint": str(final_path),

@@ -1,0 +1,93 @@
+# Matched all-learnable control for the joint LitePT + AGILE3D experiment.
+# This keeps the joint recipe, decoder initialization, episode schedule, seed,
+# and optimizer fixed while starting LitePT from the original public weights.
+arm: public_control_A
+experiment_id: delimit3d_scannet40_agile3d_joint_v1
+repo_commit: auto
+seed: 20260912
+parent_manifest_sha256: 2f8a9518810851199c084587b2ae923f9e19f054b0da478065c7e4bea8ee7e7d
+parent_decoder_initialization_file_sha256: 4ab8ca20c138db45872771acb5ac5d121cc14089aede9637b649b6987f3beb75
+
+paths:
+  parent_run_root: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1
+  official_root: /cluster/work/igp_psr/nedela/agile3d_data/ScanNet
+  processed_root: /cluster/work/igp_psr/nedela/scannet_processed
+  geometry_audit: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1/protocol_audit/scene_geometry_audit_parallel.jsonl
+  litept_root: /cluster/work/igp_psr/nedela/LitePT
+  output_root: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_joint_v1_control_A
+
+encoder:
+  name: Public-initialized LitePT-S*
+  checkpoint: /cluster/work/igp_psr/nedela/public_rgbn6_frozen_pg_20260907_r1/assets/public_checkpoint.pth
+  checkpoint_sha256: 86408c6371555aeee2a8eda1184b55a411f9748784c275349149b509b661d518
+  trainable: true
+  label_supervision: official ScanNet40 train instances
+
+protocol:
+  train_updates: 5000
+  click_budget: 20
+  click_center_method: kdtree
+  clicked_point_included: true
+  active_litept_level: dec0
+  voxel_size_m: 0.02
+  voxel_reduce: representative
+  representative_sampling: first
+  representative_preflight_arithmetic: pytorch_2.4.1_cuda_float32_scalar_reciprocal
+  rgbn6_contract: RGB followed by unit normals; center XY and ground Z
+  train_scene_selection: exact_parent_1200_scene_schedule
+  initial_click_policy: deepest error region; paired deterministic shuffled object order
+  correction_policy: one global deepest error click including background; no per-label cap
+
+decoder:
+  init_seed: 20260912
+  feature_dim: 72
+  hidden_dim: 128
+  num_heads: 8
+  dim_feedforward: 1024
+  num_decoders: 3
+  num_bg_queries: 10
+  dropout: 0.0
+  pre_norm: false
+  max_click_events: 200
+  normalize_pos_enc: true
+  gauss_scale: 1.0
+  aux: true
+
+optimizer:
+  learning_rate: 0.0001
+  encoder_lr: 0.0001
+  decoder_lr: 0.0001
+  weight_decay: 0.0001
+  clip_norm: 0.1
+  batch_size: 1
+  gpu: RTX 4090
+  gpu_count: 1
+  cpus_per_process: 8
+  host_ram_gib: 64
+  cache_memory_scenes: 1200
+
+precision:
+  amp: true
+  dtype: float16
+  initial_scale: 1.0
+  growth_interval: 1000000
+
+runtime:
+  startup_gradient_check: true
+  heartbeat_seconds: 30
+
+loss:
+  bce_weight: 1.0
+  dice_weight: 2.0
+  alpha: 0.8
+  beta: 2.0
+  radius: 0.3
+
+upstream:
+  name: AGILE3D
+  repository: https://github.com/ywyue/AGILE3D
+  revision: b73638da41edbabe52a1b578d52ddeb8fa552173
+  license: MIT
+
+encoder_adaptation_uses_scannet_labels: true
+ground_truth_authority: official_AGILE3D_PLY_label
