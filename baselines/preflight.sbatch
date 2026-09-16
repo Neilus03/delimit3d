@@ -3,6 +3,7 @@
 #SBATCH --account=es_schin
 #SBATCH --partition=gpupr.120h
 #SBATCH --gpus=nvidia_a100_80gb_pcie:1
+#SBATCH --constraint=AMD
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=16G
 #SBATCH --tmp=160G
