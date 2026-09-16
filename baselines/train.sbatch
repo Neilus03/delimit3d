@@ -26,9 +26,9 @@ python3 - "$RUN_ROOT" "$OUTPUT" <<'PY'
 import json,sys,hashlib
 from pathlib import Path
 root,output=map(Path,sys.argv[1:])
-checks=json.loads((root/'preflight_passed.json').read_text())
+checks=json.loads((root/'maskonly_preflight_passed.json').read_text())
 assert checks['passed'] is True
-assert hashlib.sha256((root/'mask3d_decoder_random_seed42.pt').read_bytes()).hexdigest()==checks['mask3d_decoder_file_sha256']
+assert hashlib.sha256((root/'mask3d_maskonly_decoder_random_seed42.pt').read_bytes()).hexdigest()==checks['mask3d_decoder_file_sha256']
 PY
 if [[ -f "$OUTPUT/complete" ]]; then exit 0; fi
 (cd "$RUN_ROOT/source" && sha256sum --quiet -c SHA256SUMS)
@@ -40,7 +40,7 @@ export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONUNBUFFER
 source "$MASK_REPO/student/scripts/extract_litept_local_archives.sh"
 export PYTHONPATH="$AGILE_REPO/src:$MASK_REPO/student:$TMPDIR/runtime/pointrope_sm80:$TMPDIR/runtime/LitePT:$TMPDIR/runtime/chorus:${PYTHONPATH:-}"
 export CHORUS_SCANNET_METADATA_ROOT=/cluster/work/igp_psr/nedela/scannet_metadata
-export LITEPT_MASK3D_PARITY_DECODER_TEMPLATE="$RUN_ROOT/mask3d_decoder_random_seed42.pt"
+export LITEPT_MASK3D_PARITY_DECODER_TEMPLATE="$RUN_ROOT/mask3d_maskonly_decoder_random_seed42.pt"
 PYTHON="$VIRTUAL_ENV/bin/python"
 if [[ "$ARM" == agile3d ]]; then
   "$PYTHON" "$AGILE_REPO/scripts/evaluation/run_scannet40_scratch.py" --output "$OUTPUT"

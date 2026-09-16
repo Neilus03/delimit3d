@@ -1,3 +1,7 @@
+## Routing and mask-only correction
+
+AGILE3D is moving to one RTX 4090 on pf-pc69.ethz.ch; its Euler full job was cancelled. Mask3D stays on Euler. The requested Mask3D contract is now strictly mask-only: no class/objectness head, no class logits, no classification or semantic cross-entropy, no classification term in Hungarian matching. Training uses mask BCE and Dice (including auxiliary layers); proposals rank by mask confidence alone. The retained num_classes=2 field is unused compatibility metadata, not a prediction head. The old binary object/no-object template is not used. New template: mask3d_maskonly_decoder_random_seed42.pt. Mask-only checks and successful resume gate the new 600-epoch job. The earlier text below describes the initial setup and is superseded on these points.
+
 # Scratch baseline training, 16 September 2026
 
 Two independent, fully trainable LitePT-S-star RGBN6 baselines, seed 42. Both encoders and decoders start randomly; no public or Delimit3D weights are loaded. Their outputs and smoke-test outputs are separate.
