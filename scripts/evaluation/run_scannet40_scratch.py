@@ -57,8 +57,11 @@ def train_batch(encoder, decoder, raws, optimizer, scaler):
     offsets = np.cumsum([len(a[0]) for a in arrays])
     coords = torch.from_numpy(np.concatenate([a[0] for a in arrays])).cuda()
     feats = torch.from_numpy(np.concatenate([a[1] for a in arrays])).cuda()
+    torch.cuda.synchronize(); encoder_start = time.monotonic()
     with joint._amp_context(PROTOCOL):
         output = encoder(coords, feats, torch.as_tensor(offsets, device='cuda'))
+    torch.cuda.synchronize(); encoder_seconds = time.monotonic()-encoder_start
+    interaction_seconds = 0.
     token_offsets = output.scene_token_offsets.cpu().tolist()
     token_start = point_start = 0
     losses = []
@@ -77,9 +80,11 @@ def train_batch(encoder, decoder, raws, optimizer, scaler):
         target = np.zeros(len(tokens), dtype=np.int64)
         for label, obj in enumerate(ids, 1):
             target[memberships[obj]] = label
+        interaction_start = time.monotonic()
         clicks, times = joint.protocol.initial_clicks(target, xyz.cpu().numpy(), random.randrange(2**31))
         target = torch.from_numpy(target).cuda()
         clicks, times, _ = joint._prefix_interaction(decoder, tokens.detach(), xyz, target, clicks, times, rounds, PROTOCOL)
+        interaction_seconds += time.monotonic()-interaction_start
         with joint._amp_context(PROTOCOL):
             prediction = decoder(tokens, xyz, clicks=clicks, click_times=times)
         losses.append(official_loss(prediction, target, xyz, clicks))
@@ -87,6 +92,7 @@ def train_batch(encoder, decoder, raws, optimizer, scaler):
     loss = torch.stack(losses).mean()
     if not torch.isfinite(loss):
         raise FloatingPointError(f'Non-finite loss: {loss.item()}')
+    torch.cuda.synchronize(); backward_start = time.monotonic()
     scaler.scale(loss).backward()
     scaler.unscale_(optimizer)
     grad_encoder = joint._grad_l2(list(encoder.parameters()))
@@ -95,7 +101,9 @@ def train_batch(encoder, decoder, raws, optimizer, scaler):
         raise FloatingPointError(f'Invalid gradients: {grad_encoder}, {grad_decoder}')
     torch.nn.utils.clip_grad_norm_(list(encoder.parameters())+list(decoder.parameters()), .1)
     scaler.step(optimizer); scaler.update()
-    return dict(loss=float(loss.detach()), encoder_grad=grad_encoder, decoder_grad=grad_decoder,
+    torch.cuda.synchronize()
+    return dict(encoder_seconds=encoder_seconds, interaction_seconds=interaction_seconds,
+                backward_seconds=time.monotonic()-backward_start, loss=float(loss.detach()), encoder_grad=grad_encoder, decoder_grad=grad_decoder,
                 simulation_rounds=rounds, tokens=token_offsets[-1])
 
 def validate(encoder, decoder, manifest, output_dir, epoch, smoke=False):
@@ -133,6 +141,8 @@ def main():
     parser.add_argument('--manifest', type=Path, default=Path('/cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1/selection_manifest.json'))
     parser.add_argument('--litept-root', default=os.environ.get('LITEPT_ROOT', '/cluster/work/igp_psr/nedela/LitePT'))
     parser.add_argument('--smoke', action='store_true')
+    parser.add_argument('--grid-size', type=float, default=.02, choices=(.02,.05))
+    parser.add_argument('--benchmark-batches', type=int, default=0)
     parser.add_argument('--stop-after-epochs', type=int)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -143,14 +153,14 @@ def main():
     contract = dict(schema='litept_agile3d_scratch_v1', epochs=1100, batch_scenes=5,
         seed=42, lr=1e-4, weight_decay=1e-4, lr_drop_after_epoch=1000, clip_norm=.1,
         encoder_initialization='random', decoder_initialization='random',
-        voxel_size=.02, input_features='rgbn6', manifest_sha256=joint.file_sha256(args.manifest),
+        voxel_size=args.grid_size, benchmark_batches=args.benchmark_batches, input_features='rgbn6', manifest_sha256=joint.file_sha256(args.manifest),
         decoder=DECODER, smoke=args.smoke)
     contract_path = args.output/'contract.json'
     if contract_path.exists() and json.loads(contract_path.read_text()) != contract:
         raise ValueError('Run contract changed')
     joint.dump(contract_path, contract)
     joint.set_seed(42)
-    encoder = LitePTBackbone(litept_root=args.litept_root, in_channels=6, grid_size=.02,
+    encoder = LitePTBackbone(litept_root=args.litept_root, in_channels=6, grid_size=args.grid_size,
         litept_variant='litept_s_star', multi_scale=False, voxel_reduce='representative',
         representative_sampling='first', cache_training_voxelization=False).cuda()
     decoder = Agile3DClickDecoder(**DECODER).cuda()
@@ -179,6 +189,7 @@ def main():
         joint.set_seed(42+epoch)
         order = list(range(len(records))); random.shuffle(order)
         if args.smoke: order = order[:10]
+        if args.benchmark_batches: order = order[:5*args.benchmark_batches]
         begin = time.monotonic(); results = []
         for batch_index in range(0, len(order), 5):
             tick = time.monotonic()
@@ -188,16 +199,20 @@ def main():
             with (args.output/'updates.jsonl').open('a') as stream: stream.write(json.dumps(result)+'\n')
             print(json.dumps(result), flush=True); results.append(result)
         scheduler.step()
-        if args.smoke or epoch % 50 == 0 or epoch == 1100:
+        if not args.benchmark_batches and (args.smoke or epoch % 50 == 0 or epoch == 1100):
             validate(encoder, decoder, manifest, args.output, epoch, args.smoke)
         payload = dict(epoch=epoch, encoder=encoder.state_dict(), decoder=decoder.state_dict(),
             optimizer=optimizer.state_dict(), scheduler=scheduler.state_dict(), scaler=scaler.state_dict(),
             rng=joint.rng_state(), contract=contract)
-        joint.save_torch(latest, payload)
-        if epoch % 50 == 0 or epoch == 1100: joint.save_torch(args.output/f'epoch_{epoch:04d}.pt', payload)
+        if not args.benchmark_batches:
+            joint.save_torch(latest, payload)
+        if not args.benchmark_batches and (epoch % 50 == 0 or epoch == 1100):
+            joint.save_torch(args.output/f'epoch_{epoch:04d}.pt', dict(
+                epoch=epoch, encoder=payload['encoder'], decoder=payload['decoder'],
+                contract=contract, checkpoint_kind='evaluation_weights_only'))
         joint.dump(args.output/'status.json', dict(epoch=epoch, complete=epoch==1100,
             epoch_seconds=time.monotonic()-begin, mean_loss=np.mean([r['loss'] for r in results])))
-        if args.smoke or (args.stop_after_epochs and epoch >= args.stop_after_epochs) or time.monotonic()-started > 108*3600:
+        if args.smoke or args.benchmark_batches or (args.stop_after_epochs and epoch >= args.stop_after_epochs) or time.monotonic()-started > 108*3600:
             break
 
 if __name__ == '__main__': main()

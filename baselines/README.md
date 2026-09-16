@@ -1,3 +1,11 @@
+## Final requested setup
+
+Both baselines use **5 cm voxels**, as explicitly requested on 16 September. AGILE3D runs on GPU 0 only on pf-pc69.ethz.ch (one RTX 4090), for all 1,100 epochs. Mask3D remains on Euler, one A100 80 GB, 600 epochs, strict mask-only training. The earlier 2 cm notes below are historical.
+
+The pf-pc69 20-batch benchmark at 5 cm averaged 1.3829 seconds/update (1.2696 excluding the first batch): approximately 4.23 training days for 264,000 updates, before validation/checkpoints. This short-sample estimate is consistent with the author's 4–5-day original-model runtime reported by the user, but is not a final ETA. Full training must start from fresh random weights; benchmark/smoke weights are never used.
+
+pf-pc69 home has a roughly 6 GB user quota, and its scratch disk is full. Dataset copies live in `/dev/shm/nedela_agile3d_20260916/data`, accessed through the run's `data` symlink. All 3,024 PLY/normal files are SHA256-checked against Euler records before training. Dataset RAM storage is ephemeral and must be re-staged after a reboot; durable checkpoints stay under `/home/nedela/scratch_baselines_20260916/agile3d`. `latest.pt` includes optimizer/scheduler/scaler/RNG and supports resume. Every-50-epoch snapshots contain evaluation weights only, limiting home-space use. The tmux launcher resumes clean 108-hour boundaries immediately; failures stop. Euler's original AGILE3D job was cancelled.
+
 ## Routing and mask-only correction
 
 AGILE3D is moving to one RTX 4090 on pf-pc69.ethz.ch; its Euler full job was cancelled. Mask3D stays on Euler. The requested Mask3D contract is now strictly mask-only: no class/objectness head, no class logits, no classification or semantic cross-entropy, no classification term in Hungarian matching. Training uses mask BCE and Dice (including auxiliary layers); proposals rank by mask confidence alone. The retained num_classes=2 field is unused compatibility metadata, not a prediction head. The old binary object/no-object template is not used. New template: mask3d_maskonly_decoder_random_seed42.pt. Mask-only checks and successful resume gate the new 600-epoch job. The earlier text below describes the initial setup and is superseded on these points.
