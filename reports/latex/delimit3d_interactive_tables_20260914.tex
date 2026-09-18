@@ -1,0 +1,93 @@
+\documentclass[border=8pt]{standalone}
+
+% The layout follows the supplied AGILE3D-style table screenshots.  Compile
+% normally for both tables, or define OnlyTableTwo / OnlyTableFour on the
+% command line to make a single-table PDF.
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{newtxtext,newtxmath}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+
+\newif\ifshowtabletwo
+\newif\ifshowtablefour
+\showtabletwotrue
+\showtablefourtrue
+\ifdefined\OnlyTableTwo
+  \showtablefourfalse
+\fi
+\ifdefined\OnlyTableFour
+  \showtabletwofalse
+\fi
+
+\captionsetup{
+  format=plain,
+  justification=raggedright,
+  singlelinecheck=false,
+  font=small,
+  labelfont=bf,
+  labelsep=colon,
+  skip=5pt
+}
+
+\newcolumntype{C}[1]{>{\centering\arraybackslash}m{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}m{#1}}
+\newcommand{\ours}[1]{\textbf{#1}}
+\newcommand{\up}{\ensuremath{\uparrow}}
+\newcommand{\down}{\ensuremath{\downarrow}}
+
+\begin{document}
+
+\ifshowtabletwo
+\setcounter{table}{1}
+\begin{minipage}{13.1cm}
+  \centering
+  \captionof{table}{\textbf{Quantitative results on interactive single-object segmentation ($\leq 3$ clicks).} LitePT is the frozen public LitePT checkpoint. LitePT + Delimit3D is that checkpoint after 256 Delimit3D adaptation updates, also frozen for transfer. Each arm uses a separately optimized decoder cloned from the same initialization.}
+  \setlength{\tabcolsep}{7pt}
+  \renewcommand{\arraystretch}{1.28}
+  \begin{tabular}{@{}C{1.35cm}L{4.95cm}|*{3}{C{1.55cm}}@{}}
+    \toprule
+    \multicolumn{2}{c|}{\textbf{Method}} & \textbf{IoU@1\,\up} & \textbf{IoU@2\,\up} & \textbf{IoU@3\,\up} \\
+    \midrule
+    \multirow{2}{*}{\rotatebox[origin=c]{90}{\scriptsize\textbf{ScanNet40}}}
+      & LitePT (public) & 24.1 & 31.1 & 36.0 \\
+      & \ours{LitePT + Delimit3D (256 updates)} & \ours{26.1} & \ours{35.2} & \ours{41.3} \\
+    \midrule
+    \multirow{2}{*}{\rotatebox[origin=c]{90}{\scriptsize\textbf{S3DIS}}}
+      & LitePT (public) & 15.3 & 23.7 & 29.7 \\
+      & \ours{LitePT + Delimit3D (256 updates)} & \ours{20.6} & \ours{30.6} & \ours{37.1} \\
+    \bottomrule
+  \end{tabular}
+\end{minipage}
+\fi
+
+\ifshowtablefour
+  \ifshowtabletwo\par\vspace{1.2em}\fi
+  \setcounter{table}{3}
+  \begin{minipage}{21.2cm}
+    \centering
+    \captionof{table}{\textbf{Quantitative results on interactive multi-object segmentation.} LitePT is the frozen public LitePT checkpoint; LitePT + Delimit3D is the same starting checkpoint after 256 Delimit3D adaptation updates, then frozen. Each arm has its own downstream decoder trained from the same initialization. IoU is higher-is-better and NoC is lower-is-better; KITTI-360 is omitted because its evaluation is not yet available.}
+    \setlength{\tabcolsep}{4pt}
+    \renewcommand{\arraystretch}{1.10}
+    \begin{tabular}{@{}L{5.10cm}L{4.50cm}|*{3}{C{1.55cm}}|*{3}{C{1.55cm}}@{}}
+      \toprule
+      \textbf{Method} & \textbf{Train $\rightarrow$ Eval} & {\footnotesize\textbf{IoU@5\,\up}} & {\footnotesize\textbf{IoU@10\,\up}} & {\footnotesize\textbf{IoU@15\,\up}} & {\footnotesize\textbf{NoC@80\,\down}} & {\footnotesize\textbf{NoC@85\,\down}} & {\footnotesize\textbf{NoC@90\,\down}} \\
+      \midrule
+      LitePT (public) & \multirow{2}{*}{\centering ScanNet40 $\rightarrow$ ScanNet40}
+        & 59.2 & 64.3 & 67.0 & 15.7 & 17.4 & 18.6 \\
+      \ours{LitePT + Delimit3D (256 updates)} &
+        & \ours{64.2} & \ours{69.7} & \ours{73.0} & \ours{14.1} & \ours{16.5} & \ours{18.0} \\
+      \midrule
+      LitePT (public) & \multirow{2}{*}{\centering ScanNet40 $\rightarrow$ S3DIS-A5}
+        & 45.8 & 55.4 & 61.6 & 19.1 & 20.0 & 20.0 \\
+      \ours{LitePT + Delimit3D (256 updates)} &
+        & \ours{52.4} & \ours{63.7} & \ours{68.1} & \ours{17.5} & \ours{18.9} & \ours{19.5} \\
+      \bottomrule
+    \end{tabular}
+  \end{minipage}
+\fi
+
+\end{document}

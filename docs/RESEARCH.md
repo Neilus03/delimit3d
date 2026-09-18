@@ -1,51 +1,87 @@
-# Research scope
+# Research direction
 
-Delimit3D tests one narrow hypothesis:
+Updated 18 September 2026. This document supersedes the 11 September plan that
+made short public-checkpoint adaptation and frozen point selection the sole
+priority. The older experiments remain valid within their recorded scope.
 
-> Multigranular, category-agnostic 2D pseudomasks can provide useful negative
-> structure when briefly adapting a pretrained 3D scene encoder, making a point
-> select a more spatially specific object or part in a real scan.
+## Direction after the supervisor meeting
 
-The adaptation is label-free with respect to 3D annotations, but it is not
-teacher-free: UnSAMv2 supplies the 2D pseudomasks while building the synthetic
-source packs. The teacher is absent at downstream inference.
+The 16 September meeting called for fewer, stronger controlled experiments:
+pretrain LitePT from random initialization with PartField-style supervision,
+then test class-agnostic ordinary instance segmentation and interactive
+segmentation. Interactive performance is complementary evidence. Both full
+fine-tuning and frozen-encoder/decoder-only evaluations are acceptable, provided
+each comparison holds the training mode fixed.
 
-The main endpoint is point-conditioned selection. A fixed native-feature
-readout is a representation diagnostic. The decisive next test is a fresh,
-class-agnostic point decoder trained identically on frozen public and adapted
-features, followed by one-click and correction-click evaluation. Object and
-part results must be reported separately. Mask3D and PointGroup remain
-historical transfer probes rather than the central success criterion.
+The causal question is whether the pretrained encoder improves a given
+downstream system over that same system trained from scratch. Within each
+pair, keep the decoder initialization, data, input channels, preprocessing,
+schedule, seed, optimization and evaluation identical. Vary encoder
+initialization only. A public pretrained checkpoint is a separate control.
 
-The old CHORUS checkout remains the scientific archive for the rejected
-scratch-to-Mask3D transfer and the complete calibration history. See
-[`../manifests/legacy_evidence.json`](../manifests/legacy_evidence.json).
+The first downstream systems are:
 
-## Current evidence
+1. LitePT + class-agnostic, mask-only Mask3D for automatic instance segmentation.
+   The current implementation has no class/objectness prediction head or
+   semantic cross-entropy. It uses mask matching, BCE/Dice losses, and mask
+   confidence for proposal ranking.
+2. LitePT + AGILE3D for interactive instance segmentation, with the exact
+   upstream AGILE3D model retained as a separate external system reference.
 
-The matched frozen-encoder point-decoder endpoint is now the primary decision
-test. The valid 256-update public-LitePT posttraining snapshot improved AP
-over public LitePT by `0.0852` on 50 ScanNet++ validation scenes and 777
-one-click queries, but its fixed-IoU gain was only `0.0113` and did not pass the
-predeclared gate. A later 512-update run and the 20260911 repeat both recorded
-`public_checkpoint_used=false`: they started from the scratch
-`initial_representative_rgbn6_seed42.pt` artifact and therefore are not valid
-public-initialized duration or seed comparisons. The repeat scored AP `0.3220`
-and fixed IoU `0.0709` against public AP `0.4085` and fixed IoU `0.1557`, but
-that negative aggregate is retained only as a protocol audit. It used backbone
-LR `0.001`, whereas the valid public posttraining run used `0.0001`. The
-sampled contrastive loss still decreased from `6.7275` at update 1 to `4.8457`
-at update 256, showing that objective optimization alone did not predict
-transfer, but this run cannot test public-posttraining reproducibility.
+The shared **5 cm** resolution and full **600 Mask3D / 1,100 AGILE3D epoch**
+budgets were subsequent execution decisions, not a verbatim meeting matrix.
+The resolution contract covers scratch training, pretraining, downstream
+fine-tuning, cached geometry and evaluation. Pretraining may proceed once both
+baselines have launched; their completion is not a prerequisite.
 
-The combined evidence is not yet enough to decide whether public-LitePT
-posttraining is seed-stable or whether longer public-initialized adaptation is
-harmful. Fixed cosine separation and ordinary upstream loss remain
-representation diagnostics rather than sufficient transfer criteria. Before
-changing the mechanism, we need one correctly public-initialized repeat with
-the original `0.0001` backbone LR and the same matched point-conditioned gate.
-Mask3D/PointGroup numbers remain historical probes; the current scientific
-scope is point-conditioned, class-agnostic object/part selection.
+## Implemented work and unresolved controls
 
-The full seed-repeat provenance and artifact hashes are recorded in
-[`results/adaptation_256_seed20260911_native_4090.md`](results/adaptation_256_seed20260911_native_4090.md).
+Scratch RGBN6 LitePT pretraining is running on Structured3D with a 336-epoch
+budget. Its measured recipe and immutable inputs are external and linked in
+[the experiment map](EXPERIMENTS.md). Feature-selectivity panels measure how
+the representation changes; they are not downstream transfer results.
+
+The mask-only Mask3D scratch arm and the LitePT RGB3 AGILE3D arm are running.
+The latter keeps RGB-only inputs and the released ScanNet40 data/click protocol,
+uses LitePT dec0 features with a single-level compatible decoder, and records
+its NumPy quantization compatibility backend. It must not be described as
+the unmodified released AGILE3D model.
+
+**Open control:** RGB3 AGILE3D cannot be paired directly with an RGBN6 encoder
+to isolate pretraining. Freeze a matching input/model contract and any required
+weight conversion before launching the pretrained downstream arm. Likewise,
+retain mask-only scoring, the same feature stages, BatchNorm policy, random
+decoder and full schedule in the Mask3D pair. Do not silently reinterpret an
+old custom RGBN6 run as the newer RGB3 baseline.
+
+## What the earlier study establishes
+
+The short-adaptation study compares frozen public LitePT against the same
+checkpoint after 256 multigranular 2D-pseudomask updates. Completed ScanNet40,
+S3DIS and Articulate3D evaluations support better multi-click selection under
+their matched decoder recipes. A separate completed 5,000-update joint-training
+control compares public versus adapted encoder initialization while training
+both encoder and decoder. See [the results ledger](results/20260918_experiment_summary.md).
+
+Feature retrieval AP, leakage, margins and visualizations support interpretation;
+they do not replace automatic or interactive downstream evaluation. Object and
+part metrics remain separate. Part thresholds ≥5, ≥10 and ≥20 denote minimum
+surviving unambiguous tokens, with ≥10 primary.
+
+The explanation that instance separation harms semantic grouping remains a
+hypothesis. A class-aware failure does not settle the class-agnostic question.
+Loss decreases, higher effective rank and colorful feature plots alone do not
+demonstrate useful transfer.
+
+## Historical failures and remaining questions
+
+The initial ScanNet++ point-decoder study improved AP but did not pass its
+fixed-IoU gate. The later 512-update run and seed repeat started from scratch
+despite being intended as public-initialization controls; they cannot answer
+the duration or seed-stability questions for short public adaptation. Preserve
+the [seed-repeat audit](results/adaptation_256_seed20260911_native_4090.md).
+
+PTv3 and Sonata adaptations remain secondary experiment families. Their
+existence does not expand the current priority into an unrestricted backbone
+sweep. The immediate evidence still needed is a completed, matched scratch
+versus pretrained downstream comparison, with uncertainty and protocol limits.

@@ -31,6 +31,12 @@ runs/
 features/
 exports/
 reports/generated/
+artifacts/
+mesh_visuals/
+*.aux
+*.fls
+*.fdb_latexmk
+*.synctex.gz
 
 # Keep small, hand-authored manifests and examples versioned.
 !manifests/*.json

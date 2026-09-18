@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "delimit3d"
 version = "0.1.0"
-description = "Short, label-free adaptation of pretrained 3D scene features from multigranular 2D pseudomasks"
+description = "Controlled 3D representation pretraining and adaptation for object and part segmentation"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

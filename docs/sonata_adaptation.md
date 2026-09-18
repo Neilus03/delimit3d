@@ -40,8 +40,9 @@ export PYTHONPATH=$PWD/src:/cluster/work/igp_psr/nedela/sonata
   --config configs/adaptation/sonata_rgbn6_256.example.yaml --mode prepare
 ```
 
-Before training, submit the one-scene CUDA contract check. It requests one
-RTX 4090, 4 CPU cores, and 8 GiB of host RAM and performs no optimizer step:
+Before training, submit the one-scene CUDA contract check. The current
+`sonata_256.sbatch` requests one A100 80 GB, 4 CPU cores and 8 GiB of host
+RAM; the smoke performs no optimizer step:
 
 ```bash
 sbatch --export=ALL scripts/adaptation/sonata_256.sbatch smoke
@@ -62,3 +63,13 @@ Sonata adaptation to the public Sonata checkpoint on the same raw-feature
 geometry and the same downstream point-conditioned decoder protocol before
 making any cross-encoder claim. The adaptation loss by itself is not a
 transfer result.
+
+## Later matched recipe
+
+The separate `run_sonata_matched_adaptation.py` runner and
+`sonata_rgbn6_256_matched.example.yaml` record the later matched adaptation
+contract. `sonata_256_matched.sbatch` requests two A100 GPUs and preserves a
+source snapshot under the external run root. The original single-GPU launcher
+above pins its historical commit; editing this checkout does not update that
+archive. These are secondary experiment paths; this document is setup history,
+not evidence of a completed result. See [the experiment map](EXPERIMENTS.md).
