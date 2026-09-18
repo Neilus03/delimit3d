@@ -1291,7 +1291,7 @@ def test_token_pure_fixed_eval_advances_queue_until_all_cells_survive(
         )
 
     monkeypatch.setattr(
-        "scripts.partfield_contrastive_gt3_unsam3_training."
+        "delimit3d.training.adaptation."
         "sample_multigranular_frame_group_plan",
         fake_plan,
     )
@@ -1327,11 +1327,11 @@ def test_token_pure_fixed_eval_rotates_quota_without_training_epoch_cursor(
         )
 
     monkeypatch.setattr(
-        "scripts.partfield_contrastive_gt3_unsam3_training.stable_seed",
+        "delimit3d.training.adaptation.stable_seed",
         lambda *_parts: 1,
     )
     monkeypatch.setattr(
-        "scripts.partfield_contrastive_gt3_unsam3_training."
+        "delimit3d.training.adaptation."
         "sample_multigranular_frame_group_plan",
         fake_plan,
     )

@@ -1,0 +1,70 @@
+# Minimal released-AGILE3D backbone substitution.
+#
+# The dataset, click simulator, optimizer schedule, and EvaluatorMO are taken
+# from the pinned AGILE3D checkout.  Only Res16UNet34C is replaced by a
+# trainable LitePT-S* whose final dec0 tokens are fed to the one-level decoder.
+experiment_id: agile3d_litept_sstar_rgb3_scratch_v1
+schema: delimit3d_agile3d_litept_sstar_rgb3_scratch/v1
+seed: 42
+
+paths:
+  agile3d_root: /cluster/work/igp_psr/nedela/AGILE3D
+  litept_root: /cluster/work/igp_psr/nedela/LitePT
+  # This is the existing official AGILE3D ScanNet40 conversion: flat labeled
+  # PLY files plus the original 1,200/312 scene lists.  Do not replace it with
+  # the nested raw ScanNet download under scannet_raw.
+  scan_folder: /cluster/work/igp_psr/nedela/agile3d_data/ScanNet/scans
+  train_list: /cluster/work/igp_psr/nedela/agile3d_data/ScanNet/train_list.json
+  val_list: /cluster/work/igp_psr/nedela/agile3d_data/ScanNet/val_list.json
+  output_root: /cluster/work/igp_psr/nedela/delimit3d_agile3d_litept_sstar_rgb3_scratch_v1
+
+sources:
+  agile3d_protocol: current_checkout_rgb_path
+  litept_variant_contract: litept_s_star_dec0_72
+
+protocol:
+  input_features: rgb3
+  multi_scale: false
+  coordinate_contract: official_agile3d_per_axis_minimum
+  quantization_backend: official_minkowski_sparse_quantize
+  voxel_size_m: 0.05
+  batch_size: 5
+  val_batch_size: 1
+  epochs: 1100
+  val_epochs: 50
+  lr_drop: [1000]
+  max_num_clicks: 20
+
+model:
+  litept_variant: litept_s_star
+  in_channels: 3
+  feature_dim: 72
+  hidden_dim: 128
+  num_heads: 8
+  dim_feedforward: 1024
+  num_decoders: 3
+  num_bg_queries: 10
+  dropout: 0.0
+  pre_norm: false
+  max_click_events: 200
+  normalize_pos_enc: true
+  gauss_scale: 1.0
+  aux: true
+
+optimizer:
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  clip_norm: 0.1
+
+loss:
+  bce_weight: 1.0
+  dice_weight: 2.0
+  alpha: 0.8
+  beta: 2.0
+  radius: 0.3
+
+runtime:
+  num_workers: 2
+  approved_gpus:
+    - RTX 3090
+    - RTX 4090

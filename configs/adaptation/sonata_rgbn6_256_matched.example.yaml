@@ -1,0 +1,69 @@
+# Matched two-GPU public Sonata -> Delimit3D adaptation.
+# The matched contract is deliberately explicit: 2 ranks x 6 scenes/rank x
+# 16 proposal draws/scene = 12 scenes and 192 proposals per global update.
+experiment:
+  name: delimit3d_sonata_rgbn6_256_matched_v1
+  seed: 20260911
+  updates: 256
+  checkpoint_updates: [64, 128, 256]
+  claim_boundary: >-
+    Matched 256-update label-free adaptation of public Sonata features to
+    multigranular Structured3D 2D pseudomasks; this job alone makes no
+    downstream claim.
+
+matched:
+  world_size: 2
+  scenes_per_rank: 6
+  scenes_per_global_update: 12
+  proposals_per_scene: 16
+  proposals_per_global_update: 192
+  expected_train_scene_count: 2930
+  warmup_updates: 0
+  peak_lr_factor: 1.0
+  final_lr_factor: 1.0
+  invalid_scene_policy: fixed_schedule_zero_gradient
+
+model:
+  family: sonata
+  sonata_root: /cluster/work/igp_psr/nedela/sonata
+  source_commit: 18c09ff8d713494f78a8213792262b910977a65d
+  checkpoint: /cluster/work/igp_psr/nedela/sonata_weights/sonata.pth
+  checkpoint_sha256: c5ced5acdae30d1c469713398073a866e25e6e414e23feed5dc025373657ac50
+  input_contract: coord_rgb_normal_9ch_official_sonata_v1
+  grid_size: 0.02
+  enable_flash: true
+  patch_size: 1024
+  projection_dim: 128
+  projection_hidden_dim: 128
+
+data:
+  source_root: /cluster/work/igp_psr/nedela/partfield_contrastive_gt3_unsam3_scratch/structured3d_sources_raw_unsamv2_90val
+  train_split: /cluster/work/igp_psr/nedela/partfield_contrastive_gt3_unsam3_scratch/structured3d_splits/train.txt
+  input_features: rgbn6
+  coordinate_normalization_policy: structured3d_local_y_up_to_scannet_z_up_v1
+  source_cells: [2d/g02, 2d/g05, 2d/g08]
+  source_manifest_verification: sha256_required
+  augmentation_profile: none
+
+sampling:
+  mode: coverage_multigranular_v2
+  profile: pf_hnm_512_p16_v1
+  source_cells: [2d/g02, 2d/g05, 2d/g08]
+  negative_membership_policy: require_negative_proposal_membership
+  feature_hard_mining: enabled
+
+optimizer:
+  name: AdamW
+  backbone_lr: 0.0001
+  head_lr: 0.003
+  weight_decay: 0.0001
+  gradient_clip_norm: 0.1
+
+resources:
+  gpus: 2
+  gpu: nvidia_a100_80gb_pcie
+  cpus_per_task: 8
+  memory_gib: 96
+
+paths:
+  output: /cluster/work/igp_psr/nedela/delimit3d_sonata_rgbn6_256_matched_v1

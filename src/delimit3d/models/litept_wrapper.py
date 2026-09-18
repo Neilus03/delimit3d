@@ -660,6 +660,66 @@ class LitePTBackbone(nn.Module):
             torch.cat(representative_parts, dim=0),
         )
 
+    def _prepare_prequantized(
+        self,
+        coord: torch.Tensor,
+        feat: torch.Tensor,
+        grid_coord: torch.Tensor,
+        point_offsets: torch.Tensor,
+    ) -> tuple[
+        dict[str, torch.Tensor],
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
+        """Build a LitePT input from an already quantized sparse scene.
+
+        AGILE3D's official ScanNet loader quantizes the PLY once and uses the
+        resulting token order for labels, inverse maps, and clicks.  Re-running
+        LitePT's grid sampler would make that index contract implicit and can
+        change the representative token order.  This path therefore accepts
+        the official quantized coordinates directly and only lets LitePT run
+        its encoder/decoder on them.
+
+        ``grid_coord`` is allowed to be negative after the official geometric
+        augmentation.  LitePT's sparse implementation uses scene-local
+        non-negative grids, so we translate each scene's grid without changing
+        the metric ``coord`` values or token order.
+        """
+        if grid_coord.ndim != 2 or tuple(grid_coord.shape) != (coord.shape[0], 3):
+            raise ValueError(
+                "prequantized grid_coord must have shape [N,3] matching coord, "
+                f"got {tuple(grid_coord.shape)} and {tuple(coord.shape)}"
+            )
+        grid_coord = grid_coord.to(device=coord.device, dtype=torch.int32).contiguous()
+        local_grid_parts: list[torch.Tensor] = []
+        start = 0
+        for end in point_offsets.tolist():
+            local_grid = grid_coord[start:end]
+            if local_grid.shape[0] == 0:
+                raise ValueError("prequantized scenes must contain at least one token")
+            unique_count = torch.unique(local_grid, dim=0).shape[0]
+            if int(unique_count) != int(local_grid.shape[0]):
+                raise ValueError(
+                    "prequantized grid contains duplicate tokens; the input must "
+                    "be the official one-token-per-voxel representation"
+                )
+            local_grid_parts.append(local_grid - local_grid.min(dim=0).values)
+            start = int(end)
+        if start != int(coord.shape[0]):
+            raise ValueError("point_offsets do not cover the prequantized input")
+
+        local_grid = torch.cat(local_grid_parts, dim=0)
+        token_indices = torch.arange(coord.shape[0], device=coord.device, dtype=torch.long)
+        point_dict = {
+            "coord": coord,
+            "grid_coord": local_grid,
+            "feat": feat,
+            "offset": point_offsets,
+        }
+        return point_dict, token_indices, coord, point_offsets, token_indices
+
     # ------------------------------------------------------------------ #
 
     def forward(
@@ -667,6 +727,7 @@ class LitePTBackbone(nn.Module):
         coord: torch.Tensor,
         feat: torch.Tensor,
         point_offsets: torch.Tensor | None = None,
+        grid_coord: torch.Tensor | None = None,
     ) -> LitePTBackboneOutput | LitePTFeaturePyramid:
         """Run LitePT and return structured backbone output.
 
@@ -674,6 +735,9 @@ class LitePTBackbone(nn.Module):
         ----------
         coord : (N, 3) or (1, N, 3) float
         feat  : (N, C) or (1, N, C) float
+        grid_coord : optional (N, 3) integer coordinates from an upstream
+            quantizer.  When supplied, LitePT does not re-voxelize the scene;
+            this preserves external label/click indices exactly.
 
         Returns
         -------
@@ -690,7 +754,25 @@ class LitePTBackbone(nn.Module):
         )
         batched = point_offsets_t.numel() > 1
 
-        if (
+        if grid_coord is not None:
+            if self.cache_training_voxelization:
+                raise ValueError(
+                    "prequantized LitePT input cannot use cached training voxelization"
+                )
+            (
+                point_dict,
+                inverse,
+                scene_xyz,
+                scene_token_offsets,
+                representative_indices,
+            ) = self._prepare_prequantized(
+                coord,
+                feat,
+                grid_coord,
+                point_offsets_t,
+            )
+            batched = point_offsets_t.numel() > 1
+        elif (
             self.cache_training_voxelization
             and self._cached_voxelization is not None
             and self.training
@@ -732,6 +814,21 @@ class LitePTBackbone(nn.Module):
         out = self.model(point_dict)
 
         scene_tokens = out.feat          # [V, C]
+        if grid_coord is not None:
+            output_grid = getattr(out, "grid_coord", None)
+            if scene_tokens.shape[0] != coord.shape[0] or output_grid is None:
+                raise RuntimeError(
+                    "LitePT changed the prequantized token count; the official "
+                    "AGILE3D click/label index contract is no longer valid"
+                )
+            if not torch.equal(
+                output_grid.to(device=coord.device, dtype=torch.int32),
+                point_dict["grid_coord"],
+            ):
+                raise RuntimeError(
+                    "LitePT changed the prequantized dec0 token order; use the "
+                    "regular voxelization path only after an explicit mapping audit"
+                )
         point_feat = scene_tokens[inverse]  # [N, C]
         scene_token_offsets = getattr(out, "offset", scene_token_offsets)
 

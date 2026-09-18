@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=sonata256
-#SBATCH --partition=gpuhe.120h
-#SBATCH --gpus=rtx_4090:1
+#SBATCH --partition=gpupr.120h
+#SBATCH --gpus=nvidia_a100_80gb_pcie:1
+#SBATCH --constraint=AMD
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=2G
 #SBATCH --time=12:00:00
@@ -11,7 +12,7 @@ set -euo pipefail
 
 repo=/cluster/home/nedela/nedela/projects/delimit3d
 python=/cluster/work/igp_psr/nedela/litept-env/bin/python
-expected_commit=a2596d262f99673514a4325511216e8900b7a9fd
+expected_commit=3247a72fadcc16c747eaf5fdf271aae8529cc7f7
 artifact=/cluster/work/igp_psr/nedela/delimit3d_sonata_rgbn6_256_v1
 archive_root=${artifact}/source_snapshots
 archive=${archive_root}/delimit3d-${expected_commit}.tar

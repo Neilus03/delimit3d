@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=sonata_eval
-#SBATCH --partition=gpuhe.120h
-#SBATCH --gpus=rtx_4090:1
+#SBATCH --partition=gpupr.120h
+#SBATCH --gpus=nvidia_a100_80gb_pcie:1
+#SBATCH --constraint=AMD
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=2G
 #SBATCH --time=12:00:00

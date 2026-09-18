@@ -280,9 +280,10 @@ def train(config: Mapping[str, Any], *, updates_override: int | None = None, smo
         raise RuntimeError("matched world/scene/proposal contract drift")
     if int(sampling.proposals_per_forward) != pps:
         raise RuntimeError("sampler proposals_per_forward does not match contract")
+    find_unused = bool(matched.get('find_unused_parameters', True))
     ddp = torch.nn.parallel.DistributedDataParallel(
         model, device_ids=[local], output_device=local,
-        broadcast_buffers=True, find_unused_parameters=False
+        broadcast_buffers=True, find_unused_parameters=find_unused
     )
     optimizer = _optimizer_for(model, config)
     initial_full_hash = _same_hash(model, world)

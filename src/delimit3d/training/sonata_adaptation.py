@@ -338,6 +338,14 @@ class SonataContrastiveModel(nn.Module):
                 "cosine_gap": float(
                     sum(float(item["cosine_gap"]) for item in results) / len(results)
                 ),
+                "positive_cosine_mean": float(
+                    sum(float(item["positive_cosine_mean"]) for item in results)
+                    / len(results)
+                ),
+                "negative_cosine_mean": float(
+                    sum(float(item["negative_cosine_mean"]) for item in results)
+                    / len(results)
+                ),
                 "triplet_ranking_accuracy": float(
                     sum(float(item["triplet_ranking_accuracy"]) for item in results)
                     / len(results)
@@ -384,6 +392,14 @@ class SonataContrastiveModel(nn.Module):
                 "temperature": float(self.criterion.temperature.detach()),
                 "cosine_gap": float(
                     sum(float(item["cosine_gap"]) for item in results) / len(results)
+                ),
+                "positive_cosine_mean": float(
+                    sum(float(item["positive_cosine_mean"]) for item in results)
+                    / len(results)
+                ),
+                "negative_cosine_mean": float(
+                    sum(float(item["negative_cosine_mean"]) for item in results)
+                    / len(results)
                 ),
                 "triplet_ranking_accuracy": float(
                     sum(float(item["triplet_ranking_accuracy"]) for item in results)

@@ -1,0 +1,29 @@
+experiment_id: delimit3d_articulate3d_agile3d_parts_v1
+seed: 20260915
+
+paths:
+  articulate3d_root: /cluster/work/igp_psr/nedela/articulate3d_delimit3d_eval_v1
+  decoder_root: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1
+  decoder_config: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1/freeze/resolved_config.yaml
+  output_root: /cluster/work/igp_psr/nedela/delimit3d_articulate3d_agile3d_parts_eval_v1
+
+protocol:
+  click_budget: 20
+  click_center_method: kdtree
+  run_min_surviving_unambiguous_tokens: 5
+  primary_min_surviving_unambiguous_tokens: 10
+  sensitivity_min_surviving_unambiguous_tokens: [5, 10, 20]
+  click_thresholds: [1, 3, 5, 10, 15, 20]
+  iou_thresholds: [0.50, 0.65, 0.80, 0.85, 0.90]
+
+bootstrap:
+  samples: 10000
+  seed: 20260915
+
+decoders:
+  public:
+    checkpoint: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1/public/decoder_u05000.pt
+    checkpoint_sha256: 1df387f627659f12eeff73e72b7770b30adf5ea5865bfea0e0e7aba42a51539c
+  delimit3d:
+    checkpoint: /cluster/work/igp_psr/nedela/delimit3d_scannet40_agile3d_matched_v1/delimit3d/decoder_u05000.pt
+    checkpoint_sha256: 27ce7f8bc748c92620d4239b9491b65b8c894747dbe53de13c4efb536bab10a6
